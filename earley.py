@@ -65,7 +65,7 @@ def build_nullable_tester(grammar):
         return symbol in nullable_non_terminals
 
     def should_be_nullable(non_terminal):
-        return any(all(element in nullable_non_terminals for element in body) for body in grammar[non_terminal])
+        return any(all(is_nullable(element) for element in body) for body in grammar[non_terminal])
 
     nullable_added = True
     while nullable_added:
