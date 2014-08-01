@@ -137,15 +137,16 @@ def parse(tokens, grammar, start=None, get_terminal=None):
     grammar = compile_grammar(grammar)
     is_nullable = build_nullable_tester(grammar)
 
-    start_item = Item(0, None, (start,), 0)
+    start_item = Item(0, object(), (start,), 0)
     states = [[start_item]]
-    for i, token in enumerate(chain(tokens, [None])):
+    for i, token in enumerate(chain(tokens, [object()])):
         states.append([])
         for item in states[i]:
             if item.expected_symbol is None:
                 for base_item in states[item.base_state]:
-                    if base_item.expected_symbol == item.non_terminal and base_item.next not in states[i]:
-                        states[i].append(base_item.next)
+                    if base_item.expected_symbol == item.non_terminal:
+                        if base_item.next not in states[i]:
+                            states[i].append(base_item.next)
             elif item.expected_symbol in grammar:
                 if is_nullable(item.expected_symbol):
                     if item.next not in states[i]:
@@ -155,5 +156,6 @@ def parse(tokens, grammar, start=None, get_terminal=None):
                     if new_item not in states[i]:
                         states[i].append(new_item)
             elif item.expected_symbol == get_terminal(token):
-                states[i + 1].append(item.next)
+                if item.next not in states[i + 1]:
+                    states[i + 1].append(item.next)
     return start_item.next in states[i]
