@@ -1,99 +1,88 @@
-from itertools import groupby
 from itertools import chain
 
 
-class Rule:
-    def __init__(self, tag, bodies, nullable):
-        self.__tag = tag
-        self.__bodies = bodies
-        self.__nullable = nullable
-
-    @property
-    def tag(self):
-        return self.__tag
-
-    def __len__(self):
-        return len(self.__bodies)
-
-    def __iter__(self):
-        yield from self.__bodies
-
-    @property
-    def nullable(self):
-        return self.__nullable
+class GrammarError(Exception):
+    pass
 
 
-class Grammar:
-    def __init__(self, raw_productions):
-        def cook(raw_productions):
-            def get_tag(raw_production):
-                return raw_production[0]
+def compile_body_element(element):
+    if isinstance(element, str):
+        return element, True
+    if isinstance(element, set):
+        if len(element) == 0:
+            raise GrammarError('Set must contain one string.')
+        if len(element) > 1:
+            raise GrammarError('Set must contain only one string.')
+        element = next(iter(element))
+        if not isinstance(element, str):
+            raise GrammarError('Set element must be a string, instead got ' + type(element).__name__ + '.')
+        return element, False
+    if callable(element):
+        raise GrammarError('Callable can only be last element of rule body.')
+    raise GrammarError('Rule body element bust be a set, string or callable, instead got ' + type(element).__name__ +
+                       '.')
 
-            def get_body(raw_production):
-                return tuple(raw_production[1:])
 
-            productions = {}
+def compile_rule_body(body):
+    if not isinstance(body, (tuple, set, str)) and not callable(body):
+        raise GrammarError('Rule body must be a tuple, set, string, or callable, instead got ' + type(body).__name__ +
+                           '.')
+    if not isinstance(body, tuple):
+        body = body,
 
-            raw_productions = list(raw_productions)
-            raw_productions.sort(key=get_tag)
-            for tag, raw_production_group in groupby(raw_productions, get_tag):
-                bodies = {get_body(raw_production) for raw_production in raw_production_group}
-                productions[tag] = bodies
+    body, combinator = (body[:-1], body[-1]) if len(body) > 0 and callable(body[-1]) else (body, None)
+    body, selector = tuple(zip(*map(compile_body_element, body))) or ((), ())
 
-            return productions
+    return body, selector, combinator
 
-        def compute_nullable(productions):
-            nullable = {tag for tag in productions if () in productions[tag]}
 
-            def should_be_nullable(tag):
-                def nullable_body(body):
-                    for tag in body:
-                        if tag not in nullable:
-                            return False
-                    return True
+def compile_rule_group(non_terminal, body_group):
+    if not isinstance(non_terminal, str):
+        raise GrammarError('Grammar non-terminal must be a string, instead got ' + type(non_terminal).__name__ + '.')
+    if not isinstance(body_group, (list, tuple, set, str)) and not callable(body_group):
+        raise GrammarError('Rule body group must be a list, tuple, set, string, or callable, instead got ' +
+                           type(body_group).__name__ + '.')
 
-                for body in productions[tag]:
-                    if nullable_body(body):
-                        return True
-                return False
+    if not isinstance(body_group, list):
+        body_group = [body_group]
 
-            nullable_added = True
-            while nullable_added:
-                nullable_added = False
-                for tag in productions:
-                    if tag not in nullable and should_be_nullable(tag):
-                        nullable.add(tag)
-                        nullable_added = True
+    body_group = {body: (selector, combinator) for body, selector, combinator in map(compile_rule_body, body_group)}
 
-            return nullable
+    return non_terminal, body_group
 
-        productions = cook(raw_productions)
-        nullable = compute_nullable(productions)
-        self.__rules = {tag: Rule(tag, productions[tag], tag in nullable) for tag in productions}
-        self.__start_rule = self.__rules[raw_productions[0][0]]
 
-    def __len__(self):
-        return len(self.__rules)
+def compile_grammar(grammar):
+    if not isinstance(grammar, dict):
+        raise GrammarError('Grammar must be a dictionary, instead got ' + type(grammar).__name__ + '.')
 
-    def __getitem__(self, tag):
-        return self.__rules[tag]
+    return dict(map(compile_rule_group, grammar.keys(), grammar.values()))
 
-    def __iter__(self):
-        yield from self.__rules
 
-    def __contains__(self, tag):
-        return tag in self.__rules
+def build_nullable_tester(grammar):
+    nullable_non_terminals = {non_terminal for non_terminal in grammar if () in grammar[non_terminal]}
 
-    @property
-    def start_rule(self):
-        return self.__start_rule
+    def is_nullable(symbol):
+        return symbol in nullable_non_terminals
+
+    def should_be_nullable(non_terminal):
+        return any(all(element in nullable_non_terminals for element in body) for body in grammar[non_terminal])
+
+    nullable_added = True
+    while nullable_added:
+        nullable_added = False
+        for non_terminal in grammar:
+            if not is_nullable(non_terminal) and should_be_nullable(non_terminal):
+                nullable_non_terminals.add(non_terminal)
+                nullable_added = True
+
+    return is_nullable
 
 
 class Item:
-    def __init__(self, base_state, rule_tag, rule_body, progress):
+    def __init__(self, base_state, non_terminal, body, progress):
         self.__base_state = base_state
-        self.__rule_tag = rule_tag
-        self.__rule_body = rule_body
+        self.__non_terminal = non_terminal
+        self.__body = body
         self.__progress = progress
 
     @property
@@ -101,35 +90,35 @@ class Item:
         return self.__base_state
 
     @property
-    def rule_tag(self):
-        return self.__rule_tag
+    def non_terminal(self):
+        return self.__non_terminal
 
     @property
-    def rule_body(self):
-        return self.__rule_body
+    def body(self):
+        return self.__body
 
     @property
     def progress(self):
         return self.__progress
 
     @property
-    def expected_tag(self):
-        if self.progress == len(self.rule_body):
+    def expected_symbol(self):
+        if self.progress == len(self.body):
             return None
-        return self.rule_body[self.progress]
+        return self.body[self.progress]
 
     @property
     def next(self):
-        if self.progress == len(self.rule_body):
+        if self.progress == len(self.body):
             return None
-        return Item(self.base_state, self.rule_tag, self.rule_body, self.progress + 1)
+        return Item(self.base_state, self.non_terminal, self.body, self.progress + 1)
 
     @property
     def __key(self):
-        return self.base_state, self.rule_tag, self.rule_body, self.progress
+        return self.base_state, self.non_terminal, self.body, self.progress
 
     def __eq__(self, other):
-        return self.__key == other.__key
+        return isinstance(other, Item) and self.__key == other.__key
 
     def __hash__(self):
         return hash(self.__key)
@@ -138,25 +127,33 @@ class Item:
         return str(self.__key)
 
 
-def parse(raw_productions, tokens, get_tag=lambda t: t.tag):
-    grammar = Grammar(raw_productions)
-    start_item = Item(0, None, (grammar.start_rule.tag,), 0)
+def parse(tokens, grammar, start=None, get_terminal=None):
+    if start is None:
+        start = 'start'
+
+    if get_terminal is None:
+        get_terminal = lambda x: x.terminal
+
+    grammar = compile_grammar(grammar)
+    is_nullable = build_nullable_tester(grammar)
+
+    start_item = Item(0, None, (start,), 0)
     states = [[start_item]]
     for i, token in enumerate(chain(tokens, [None])):
         states.append([])
         for item in states[i]:
-            if item.expected_tag is None:
+            if item.expected_symbol is None:
                 for base_item in states[item.base_state]:
-                    if base_item.expected_tag == item.rule_tag and base_item.next not in states[i]:
+                    if base_item.expected_symbol == item.non_terminal and base_item.next not in states[i]:
                         states[i].append(base_item.next)
-            elif item.expected_tag in grammar:
-                if grammar[item.expected_tag].nullable:
+            elif item.expected_symbol in grammar:
+                if is_nullable(item.expected_symbol):
                     if item.next not in states[i]:
                         states[i].append(item.next)
-                for body in grammar[item.expected_tag]:
-                    new_item = Item(i, item.expected_tag, body, 0)
+                for body in grammar[item.expected_symbol]:
+                    new_item = Item(i, item.expected_symbol, body, 0)
                     if new_item not in states[i]:
                         states[i].append(new_item)
-            elif item.expected_tag == get_tag(token):
+            elif item.expected_symbol == get_terminal(token):
                 states[i + 1].append(item.next)
     return start_item.next in states[i]
