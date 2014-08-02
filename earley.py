@@ -1,38 +1,38 @@
+from collections import namedtuple
 from itertools import chain
-
-
-class GrammarError(Exception):
-    pass
+from collections import OrderedDict
 
 
 def normalize_symbol(symbol):
     if isinstance(symbol, str):
+        if symbol == '':
+            raise ValueError('Symbol cannot be empty.')
         return symbol
-    raise TypeError('str')
+    raise TypeError('Symbol must be a strings.')
 
 
 def normalize_production(production):
     if isinstance(production, tuple):
         return tuple(map(normalize_symbol, production))
     if isinstance(production, str):
-        return (production,)
-    raise TypeError('tuple, str')
+        return (normalize_symbol(production),)
+    raise TypeError('Production must be a tuple or a string.')
 
 
 def normalize_productions(productions):
     if isinstance(productions, set):
         return set(map(normalize_production, productions))
     if isinstance(productions, tuple):
-        return {tuple(map(normalize_symbol, productions))}
+        return {normalize_production(productions)}
     if isinstance(productions, str):
-        return {(productions,)}
-    raise TypeError('set, tuple, str')
+        return {(normalize_symbol(productions),)}
+    raise TypeError('Productions must be a set, a tuple or a string.')
 
 
 def normalize_grammar(grammar):
     if isinstance(grammar, dict):
         return dict(zip(map(normalize_symbol, grammar.keys()), map(normalize_productions, grammar.values())))
-    raise TypeError('dict')
+    raise TypeError('Grammar must be a dict.')
 
 
 def compute_nullables(grammar):
@@ -52,53 +52,21 @@ def compute_nullables(grammar):
     return nullables
 
 
-class Item:
-    def __init__(self, base_state, non_terminal, body, progress):
-        self.__base_state = base_state
-        self.__non_terminal = non_terminal
-        self.__body = body
-        self.__progress = progress
+Trace = namedtuple('Trace', ['origin', 'symbol', 'production', 'progress'])
 
-    @property
-    def base_state(self):
-        return self.__base_state
 
-    @property
-    def non_terminal(self):
-        return self.__non_terminal
+def next_symbol(trace):
+    if trace.progress == len(trace.production):
+        return None
+    return trace.production[trace.progress]
 
-    @property
-    def body(self):
-        return self.__body
 
-    @property
-    def progress(self):
-        return self.__progress
-
-    @property
-    def expected_symbol(self):
-        if self.progress == len(self.body):
-            return None
-        return self.body[self.progress]
-
-    @property
-    def next(self):
-        if self.progress == len(self.body):
-            return None
-        return Item(self.base_state, self.non_terminal, self.body, self.progress + 1)
-
-    @property
-    def __key(self):
-        return self.base_state, self.non_terminal, self.body, self.progress
-
-    def __eq__(self, other):
-        return isinstance(other, Item) and self.__key == other.__key
-
-    def __hash__(self):
-        return hash(self.__key)
-
-    def __repr__(self):
-        return str(self.__key)
+def advance(trace, ground):
+    origin = trace.origin
+    symbol = trace.symbol
+    production = trace.production[:trace.progress] + (ground,) + trace.production[trace.progress + 1:]
+    progress = trace.progress + 1
+    return Trace(origin, symbol, production, progress)
 
 
 def parse(tokens, grammar, start=None, get_terminal=None):
@@ -111,25 +79,22 @@ def parse(tokens, grammar, start=None, get_terminal=None):
     grammar = normalize_grammar(grammar)
     nullables = compute_nullables(grammar)
 
-    start_item = Item(0, object(), (start,), 0)
-    states = [[start_item]]
+    start_trace = Trace(0, '', (start,), 0)
+    states = [OrderedDict.fromkeys([start_trace])]
     for i, token in enumerate(chain(tokens, [object()])):
-        states.append([])
-        for item in states[i]:
-            if item.expected_symbol is None:
-                for base_item in states[item.base_state]:
-                    if base_item.expected_symbol == item.non_terminal:
-                        if base_item.next not in states[i]:
-                            states[i].append(base_item.next)
-            elif item.expected_symbol in grammar:
-                if item.expected_symbol in nullables:
-                    if item.next not in states[i]:
-                        states[i].append(item.next)
-                for body in grammar[item.expected_symbol]:
-                    new_item = Item(i, item.expected_symbol, body, 0)
-                    if new_item not in states[i]:
-                        states[i].append(new_item)
-            elif item.expected_symbol == get_terminal(token):
-                if item.next not in states[i + 1]:
-                    states[i + 1].append(item.next)
-    return start_item.next in states[i]
+        states.append(OrderedDict())
+        for trace in states[i]:
+            if next_symbol(trace) is None:
+                if trace.progress == len(trace.production):
+                    for parent_trace in states[trace.origin]:
+                        if next_symbol(parent_trace) == trace.symbol:
+                            states[i].setdefault(advance(parent_trace, (trace.symbol,) + trace.production))
+            elif next_symbol(trace) in grammar:
+                if next_symbol(trace) in nullables:
+                    states[i].setdefault(advance(trace, ()))
+                for production in grammar[next_symbol(trace)]:
+                    states[i].setdefault(Trace(i, next_symbol(trace), production, 0))
+            elif next_symbol(trace) == get_terminal(token):
+                states[i + 1].setdefault(advance(trace, token))
+            if trace.symbol == '' and trace.progress == 1:
+                yield trace.production[0]
