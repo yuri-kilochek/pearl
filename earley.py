@@ -5,77 +5,51 @@ class GrammarError(Exception):
     pass
 
 
-def compile_body_element(element):
-    if isinstance(element, str):
-        return element, True
-    if isinstance(element, set):
-        if len(element) == 0:
-            raise GrammarError('Set must contain one string.')
-        if len(element) > 1:
-            raise GrammarError('Set must contain only one string.')
-        element = next(iter(element))
-        if not isinstance(element, str):
-            raise GrammarError('Set element must be a string, instead got ' + type(element).__name__ + '.')
-        return element, False
-    if callable(element):
-        raise GrammarError('Callable can only be last element of rule body.')
-    raise GrammarError('Rule body element bust be a set, string or callable, instead got ' + type(element).__name__ +
-                       '.')
+def normalize_symbol(symbol):
+    if isinstance(symbol, str):
+        return symbol
+    raise TypeError('str')
 
 
-def compile_rule_body(body):
-    if not isinstance(body, (tuple, set, str)) and not callable(body):
-        raise GrammarError('Rule body must be a tuple, set, string, or callable, instead got ' + type(body).__name__ +
-                           '.')
-    if not isinstance(body, tuple):
-        body = body,
-
-    body, combinator = (body[:-1], body[-1]) if len(body) > 0 and callable(body[-1]) else (body, None)
-    body, selector = tuple(zip(*map(compile_body_element, body))) or ((), ())
-
-    return body, selector, combinator
+def normalize_production(production):
+    if isinstance(production, tuple):
+        return tuple(map(normalize_symbol, production))
+    if isinstance(production, str):
+        return (production,)
+    raise TypeError('tuple, str')
 
 
-def compile_rule_group(non_terminal, body_group):
-    if not isinstance(non_terminal, str):
-        raise GrammarError('Grammar non-terminal must be a string, instead got ' + type(non_terminal).__name__ + '.')
-    if not isinstance(body_group, (list, tuple, set, str)) and not callable(body_group):
-        raise GrammarError('Rule body group must be a list, tuple, set, string, or callable, instead got ' +
-                           type(body_group).__name__ + '.')
-
-    if not isinstance(body_group, list):
-        body_group = [body_group]
-
-    body_group = {body: (selector, combinator) for body, selector, combinator in map(compile_rule_body, body_group)}
-
-    return non_terminal, body_group
+def normalize_productions(productions):
+    if isinstance(productions, set):
+        return set(map(normalize_production, productions))
+    if isinstance(productions, tuple):
+        return {tuple(map(normalize_symbol, productions))}
+    if isinstance(productions, str):
+        return {(productions,)}
+    raise TypeError('set, tuple, str')
 
 
-def compile_grammar(grammar):
-    if not isinstance(grammar, dict):
-        raise GrammarError('Grammar must be a dictionary, instead got ' + type(grammar).__name__ + '.')
+def normalize_grammar(grammar):
+    if isinstance(grammar, dict):
+        return dict(zip(map(normalize_symbol, grammar.keys()), map(normalize_productions, grammar.values())))
+    raise TypeError('dict')
 
-    return dict(map(compile_rule_group, grammar.keys(), grammar.values()))
 
+def compute_nullables(grammar):
+    def should_add(new_symbol, grammar, current_nullables):
+        return any(all(symbol in current_nullables for symbol in production) for production in grammar[new_symbol])
 
-def build_nullable_tester(grammar):
-    nullable_non_terminals = {non_terminal for non_terminal in grammar if () in grammar[non_terminal]}
+    nullables = {symbol for symbol in grammar if () in grammar[symbol]}
 
-    def is_nullable(symbol):
-        return symbol in nullable_non_terminals
+    added = True
+    while added:
+        added = False
+        for symbol in grammar:
+            if not symbol in nullables and should_add(symbol, grammar, nullables):
+                nullables.add(symbol)
+                added = True
 
-    def should_be_nullable(non_terminal):
-        return any(all(is_nullable(element) for element in body) for body in grammar[non_terminal])
-
-    nullable_added = True
-    while nullable_added:
-        nullable_added = False
-        for non_terminal in grammar:
-            if not is_nullable(non_terminal) and should_be_nullable(non_terminal):
-                nullable_non_terminals.add(non_terminal)
-                nullable_added = True
-
-    return is_nullable
+    return nullables
 
 
 class Item:
@@ -134,8 +108,8 @@ def parse(tokens, grammar, start=None, get_terminal=None):
     if get_terminal is None:
         get_terminal = lambda x: x.terminal
 
-    grammar = compile_grammar(grammar)
-    is_nullable = build_nullable_tester(grammar)
+    grammar = normalize_grammar(grammar)
+    nullables = compute_nullables(grammar)
 
     start_item = Item(0, object(), (start,), 0)
     states = [[start_item]]
@@ -148,7 +122,7 @@ def parse(tokens, grammar, start=None, get_terminal=None):
                         if base_item.next not in states[i]:
                             states[i].append(base_item.next)
             elif item.expected_symbol in grammar:
-                if is_nullable(item.expected_symbol):
+                if item.expected_symbol in nullables:
                     if item.next not in states[i]:
                         states[i].append(item.next)
                 for body in grammar[item.expected_symbol]:
