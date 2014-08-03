@@ -45,7 +45,7 @@ def _validate_rules(rules):
 
     for rule in rules:
         if not isinstance(rule, slice):
-            raise TypeError('Each rule must be a slice. not' + rule.__class__.__name__ + '.')
+            raise TypeError('Each rule must be a slice. not ' + rule.__class__.__name__ + '.')
         _validate_rule(rule.start, rule.stop, rule.step)
 
 
