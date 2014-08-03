@@ -1,4 +1,5 @@
-from itertools import groupby as _groupby
+from itertools import compress as _compress
+from itertools import chain as _chain
 
 
 class _BracketConstructible(type):
@@ -6,76 +7,84 @@ class _BracketConstructible(type):
         return cls(args)
 
 
+def _compute_nullables(rules):
+    nullables = {symbol for symbol in rules if () in rules[symbol]}
+
+    def is_nullable(symbol):
+        return symbol in nullables
+
+    def add_nullable(symbol):
+        nullables.add(symbol)
+
+    def should_be_nullable(new_symbol):
+        return any(all(is_nullable(symbol) for symbol in sequence) for sequence in rules[new_symbol])
+
+    new = True
+    while new:
+        new = False
+        for symbol in rules:
+            if not is_nullable(symbol) and should_be_nullable(symbol):
+                add_nullable(symbol)
+                new = True
+
+    return nullables
+
+
+def _build_rule(sequence, folder):
+    selector = tuple(not isinstance(element, set) for element in sequence)
+    sequence = tuple(element if selector[i] else next(iter(element)) for i, element in enumerate(sequence))
+
+    def transform(children):
+        children = _compress(children, selector)
+        children = _chain(*children)
+        if folder is None:
+            return tuple(children)
+        return folder(*children),
+
+    return sequence, transform
+
+
+def _build_rules(rules):
+    if not isinstance(rules, tuple):
+        rules = rules,
+    rules = list((rule.start, rule.stop, rule.step) for rule in rules)
+    start_symbol = rules[0][0]
+    symbols = {rule[0] for rule in rules}
+    rules = {symbol: dict(_build_rule(*rule[1:]) for rule in rules if rule[0] == symbol) for symbol in symbols}
+    nullables = _compute_nullables(rules)
+    return start_symbol, rules, nullables
+
+
 class Grammar(metaclass=_BracketConstructible):
-    class RuleSequences:
-        class Transformation:
-            def __init__(self, mask, fold):
-                self._mask = mask
-                self._fold = fold
-
-            @property
-            def mask(self):
-                return self._mask
-
-            @property
-            def fold(self):
-                return self._fold
-
-        def __init__(self, sequences, folds):
-            self._sequences = {}
-            for sequence, fold in zip(sequences, folds):
-                mask = tuple(not isinstance(element, set) for element in sequence)
-                sequence = tuple(element if masked else next(iter(element)) for element, masked in zip(sequence, mask))
-                self._sequences[sequence] = Grammar.RuleSequences.Transformation(mask, fold)
-            self._nullable = None
+    class Rule:
+        def __init__(self, transforms, nullable):
+            self._transforms = transforms
+            self._nullable = nullable
 
         def __len__(self):
-            return len(self._sequences)
+            return len(self._transforms)
 
         def __getitem__(self, sequence):
-            return self._sequences[sequence]
+            return self._transforms[sequence]
 
         def __iter__(self):
-            return iter(self._sequences)
+            return iter(self._transforms)
 
         def __contains__(self, sequence):
-            return sequence in self._sequences
+            return sequence in self._transforms
 
         @property
         def nullable(self):
             return self._nullable
 
     def __init__(self, rules):
-        if isinstance(rules, slice):
-            rules = rules,
-        rules = list((rule.start, rule.stop, rule.step) for rule in rules)
-        rules.append(('', [rules[0][0]], None))
-        rules.sort(key=lambda rule: rule[0])
-        self._rules = {}
-        for symbol, rules in _groupby(rules, lambda rule: rule[0]):
-            self._rules[symbol] = Grammar.RuleSequences(*zip(*(rule[1:] for rule in rules)))
-        self._set_nullable()
+        start_symbol, rules, nullables = _build_rules(rules)
+        self._start_symbol = start_symbol
+        self._rules = {symbol: Grammar.Rule(rules[symbol], symbol in nullables) for symbol in rules}
 
-    def _set_nullable(self):
-        def is_nullable(symbol):
-            return symbol in self and self[symbol]._nullable
-
-        def set_nullable(symbol, nullable=True):
-             self[symbol]._nullable = nullable
-
-        def should_be_nullable(new_symbol):
-            return any(all(is_nullable(symbol) for symbol in sequence) for sequence in self[new_symbol])
-
-        for symbol in self:
-            set_nullable(symbol, () in self[symbol])
-
-        new = True
-        while new:
-            new = False
-            for symbol in self:
-                if not is_nullable(symbol) and should_be_nullable(symbol):
-                    set_nullable(symbol)
-                    new = True
+    @property
+    def start_symbol(self):
+        return self._start_symbol
 
     def __len__(self):
         return len(self._rules)
