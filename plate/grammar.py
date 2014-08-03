@@ -90,9 +90,9 @@ def _build_rules(rules):
     if not isinstance(rules, tuple):
         rules = rules,
     rules = list((rule.start, rule.stop, rule.step) for rule in rules)
-    start_symbol = rules[0][0]
-    symbols = {rule[0] for rule in rules}
-    rules = {symbol: dict(_build_rule(*rule[1:]) for rule in rules if rule[0] == symbol) for symbol in symbols}
+    symbols = [rule[0] for rule in rules]
+    start_symbol = symbols[0]
+    rules = {symbol: dict(_build_rule(*rule[1:]) for rule in rules if rule[0] == symbol) for symbol in set(symbols)}
     nullables = _compute_nullables(rules)
     return start_symbol, rules, nullables
 

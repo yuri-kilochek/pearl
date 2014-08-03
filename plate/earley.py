@@ -3,7 +3,7 @@ from collections import namedtuple as _namedtuple
 from collections import OrderedDict as _OrderedDict
 
 
-_Trace = _namedtuple('Trace', ['origin', 'symbol', 'sequence', 'progress', 'children'])
+_Trace = _namedtuple('_Trace', ['origin', 'symbol', 'sequence', 'progress', 'children'])
 
 
 def _next_symbol(trace):
