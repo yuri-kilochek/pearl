@@ -7,6 +7,62 @@ class _BracketConstructible(type):
         return cls(args)
 
 
+def _validate_symbol(symbol):
+    if not isinstance(symbol, str):
+        raise TypeError('Each symbol must be a string, not ' + symbol.__class__.__name__ + '.')
+    if symbol == '':
+        raise ValueError('A symbol (string) must not be empty.')
+
+
+def _validate_rule(symbol, sequence, folder):
+    _validate_symbol(symbol)
+
+    if isinstance(sequence, list):
+        for element in sequence:
+            if isinstance(element, str):
+                _validate_symbol(symbol)
+            elif isinstance(element, set):
+                if len(element) != 1:
+                    raise ValueError('Suppressed elements can comprise only one symbol.')
+                _validate_symbol(next(iter(element)))
+            else:
+                raise TypeError('Each body element must be either a symbol (string) or a suppressed symbol (set).' +
+                                ' ' + element.__class__.__name__ + ' is neither.')
+    else:
+        raise TypeError('Each rule body must be a list, not ' + sequence.__class__.__name__ + '.')
+
+    if folder is not None and not callable(folder):
+        raise TypeError('If folder is specified, it must be a callable, and ' + folder.__class__.__name__ +
+                        ' is not one.')
+
+
+def _validate_rules(rules):
+    if not isinstance(rules, (tuple, slice)):
+        raise TypeError('Rules must be a tuple of slices or a single slice. ' + rules.__class__ + ' is neither.')
+
+    if not isinstance(rules, tuple):
+        rules = rules,
+
+    for rule in rules:
+        if not isinstance(rule, slice):
+            raise TypeError('Each rule must be a slice. not' + rule.__class__.__name__ + '.')
+        _validate_rule(rule.start, rule.stop, rule.step)
+
+
+def _build_rule(sequence, folder):
+    selector = tuple(not isinstance(element, set) for element in sequence)
+    sequence = tuple(element if selector[i] else next(iter(element)) for i, element in enumerate(sequence))
+
+    def transform(children):
+        children = _compress(children, selector)
+        children = _chain(*children)
+        if folder is None:
+            return tuple(children)
+        return folder(*children),
+
+    return sequence, transform
+
+
 def _compute_nullables(rules):
     nullables = {symbol for symbol in rules if () in rules[symbol]}
 
@@ -28,20 +84,6 @@ def _compute_nullables(rules):
                 new = True
 
     return nullables
-
-
-def _build_rule(sequence, folder):
-    selector = tuple(not isinstance(element, set) for element in sequence)
-    sequence = tuple(element if selector[i] else next(iter(element)) for i, element in enumerate(sequence))
-
-    def transform(children):
-        children = _compress(children, selector)
-        children = _chain(*children)
-        if folder is None:
-            return tuple(children)
-        return folder(*children),
-
-    return sequence, transform
 
 
 def _build_rules(rules):
@@ -78,6 +120,7 @@ class Grammar(metaclass=_BracketConstructible):
             return self._nullable
 
     def __init__(self, rules):
+        _validate_rules(rules)
         start_symbol, rules, nullables = _build_rules(rules)
         self._start_symbol = start_symbol
         self._rules = {symbol: Grammar.Rule(rules[symbol], symbol in nullables) for symbol in rules}
