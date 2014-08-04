@@ -37,7 +37,7 @@ def _validate_rule(symbol, sequence, folder):
 def _validate_rules(rules):
     if not isinstance(rules, tuple):
         rules = rules,
-    
+
     for rule in rules:
         if not isinstance(rule, slice):
             raise TypeError('Each rule must be a slice, not ' + rule.__class__.__name__ + '.')
