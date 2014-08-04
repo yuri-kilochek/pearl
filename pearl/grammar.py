@@ -48,7 +48,7 @@ def _build_rule(sequence, folder):
     selector = tuple(not isinstance(element, set) for element in sequence)
     sequence = tuple(element if selector[i] else next(iter(element)) for i, element in enumerate(sequence))
 
-    def transform(children):
+    def transform(*children):
         children = _compress(children, selector)
         children = _chain(*children)
         if folder is None:

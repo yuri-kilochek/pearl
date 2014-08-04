@@ -1,25 +1,17 @@
+from collections import namedtuple as _namedtuple
 from itertools import chain as _chain
 from collections import OrderedDict as _OrderedDict
 
-class _Item:
-    def __init__(self, origin, symbol, sequence, progress=0, children=()):
-        self.origin = origin
-        self.symbol = symbol
-        self.sequence = sequence
-        self.progress = progress
-        self.children = children
-        self.required_symbol = sequence[progress] if progress < len(sequence) else None
 
-    def _key(self):
-        return self.origin, self.symbol, self.sequence, self.progress
+class _Item(_namedtuple('_Item_', ['origin', 'symbol', 'sequence', 'progress', 'children'])):
+    def __new__(cls, origin, symbol, sequence, progress=0, children=()):
+        return super(_Item, cls).__new__(cls, origin, symbol, sequence, progress, children)
 
-    def __eq__(self, other):
-        return isinstance(other, self.__class__) and self._key() == other._key()
+    @property
+    def required_symbol(self):
+        return self.sequence[self.progress] if self.progress < len(self.sequence) else None
 
-    def __hash__(self):
-        return hash(self._key())
-
-    def step(self, subchildren=()):
+    def step(self, *subchildren):
         return _Item(self.origin, self.symbol, self.sequence, self.progress + 1, self.children + (subchildren,))
 
 
@@ -46,13 +38,15 @@ def parse(grammar, tokens, token_symbol=None):
             if item.required_symbol is None:
                 for origin_item in states[item.origin]:
                     if origin_item.required_symbol == item.symbol:
-                        states[i].add(origin_item.step(grammar[item.symbol][item.sequence](item.children)))
+                        states[i].add(origin_item.step(*grammar[item.symbol][item.sequence](*item.children)))
             elif item.required_symbol in grammar:
                 if grammar[item.required_symbol].nullable:
-                    states[i].add(item.step())
+                    states[i].add(item.step(*grammar[item.required_symbol][()]()))
                 for sequence in grammar[item.required_symbol]:
                     states[i].add(_Item(i, item.required_symbol, sequence))
             elif item.required_symbol == token_symbol(token):
-                states[i + 1].add(item.step((token,)))
-            if item == start_item.step():
-                yield item.children[0][0]
+                states[i + 1].add(item.step(token))
+    states.pop()
+    for item in states[-1]:
+        if item[:-1] == start_item.step()[:-1]:
+            yield item.children[0][0]
