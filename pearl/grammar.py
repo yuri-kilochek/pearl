@@ -11,7 +11,7 @@ def _validate_symbol(symbol):
     if not isinstance(symbol, str):
         raise TypeError('Each symbol must be a string, not ' + symbol.__class__.__name__ + '.')
     if symbol == '':
-        raise ValueError('A symbol (string) must not be empty.')
+        raise ValueError('A symbol must not be empty string.')
 
 
 def _validate_rule(symbol, sequence, folder):
@@ -26,26 +26,21 @@ def _validate_rule(symbol, sequence, folder):
                     raise ValueError('Suppressed elements can comprise only one symbol.')
                 _validate_symbol(next(iter(element)))
             else:
-                raise TypeError('Each body element must be either a symbol (string) or a suppressed symbol (set).' +
-                                ' ' + element.__class__.__name__ + ' is neither.')
+                raise TypeError('Each body element must be a string or a set, not' + element.__class__.__name__ + '.')
     else:
         raise TypeError('Each rule body must be a list, not ' + sequence.__class__.__name__ + '.')
 
     if folder is not None and not callable(folder):
-        raise TypeError('If folder is specified, it must be a callable, and ' + folder.__class__.__name__ +
-                        ' is not one.')
+        raise TypeError('If folder is specified, it must be a callable, not ' + folder.__class__.__name__ + '.')
 
 
 def _validate_rules(rules):
-    if not isinstance(rules, (tuple, slice)):
-        raise TypeError('Rules must be a tuple of slices or a single slice. ' + rules.__class__ + ' is neither.')
-
     if not isinstance(rules, tuple):
         rules = rules,
-
+    
     for rule in rules:
         if not isinstance(rule, slice):
-            raise TypeError('Each rule must be a slice. not ' + rule.__class__.__name__ + '.')
+            raise TypeError('Each rule must be a slice, not ' + rule.__class__.__name__ + '.')
         _validate_rule(rule.start, rule.stop, rule.step)
 
 
@@ -63,6 +58,17 @@ def _build_rule(sequence, folder):
     return sequence, transform
 
 
+def _build_rules(rules):
+    if not isinstance(rules, tuple):
+        rules = rules,
+    rules = list((rule.start, rule.stop, rule.step) for rule in rules)
+    symbols = [rule[0] for rule in rules]
+    start_symbol = symbols[0]
+    rules = {symbol: dict(_build_rule(*rule[1:]) for rule in rules if rule[0] == symbol) for symbol in set(symbols)}
+    nullables = _compute_nullables(rules)
+    return start_symbol, rules, nullables
+
+
 def _compute_nullables(rules):
     nullables = {symbol for symbol in rules if () in rules[symbol]}
 
@@ -72,8 +78,8 @@ def _compute_nullables(rules):
     def add_nullable(symbol):
         nullables.add(symbol)
 
-    def should_be_nullable(new_symbol):
-        return any(all(is_nullable(symbol) for symbol in sequence) for sequence in rules[new_symbol])
+    def should_be_nullable(symbol):
+        return any(all(is_nullable(symbol) for symbol in sequence) for sequence in rules[symbol])
 
     new = True
     while new:
@@ -84,17 +90,6 @@ def _compute_nullables(rules):
                 new = True
 
     return nullables
-
-
-def _build_rules(rules):
-    if not isinstance(rules, tuple):
-        rules = rules,
-    rules = list((rule.start, rule.stop, rule.step) for rule in rules)
-    symbols = [rule[0] for rule in rules]
-    start_symbol = symbols[0]
-    rules = {symbol: dict(_build_rule(*rule[1:]) for rule in rules if rule[0] == symbol) for symbol in set(symbols)}
-    nullables = _compute_nullables(rules)
-    return start_symbol, rules, nullables
 
 
 class Grammar(metaclass=_BracketConstructible):
