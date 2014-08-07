@@ -17,7 +17,7 @@ class _Item(_namedtuple('_Item_', ['origin', 'symbol', 'sequence', 'progress', '
 
 class _State:
     def __init__(self, items=[]):
-        self._items = _OrderedDict((item, None)for item in items)
+        self._items = _OrderedDict((item, None) for item in items)
 
     def __iter__(self):
         return iter(self._items)
@@ -26,13 +26,15 @@ class _State:
         self._items.setdefault(item, None)
 
 
-def parse(grammar, tokens, token_symbol=None):
-    if token_symbol is None:
-        token_symbol = lambda token: token.symbol
+class _Sentinel:
+    def __init__(self):
+        self.symbol = object()
 
-    start_item = _Item(0, '', (grammar.start_symbol,))
+
+def parse(grammar, tokens):
+    start_item = _Item(0, object(), (grammar.start_symbol,))
     states = [_State([start_item])]
-    for i, token in enumerate(_chain(tokens, [object()])):
+    for i, token in enumerate(_chain(tokens, [_Sentinel()])):
         states.append(_State())
         for item in states[i]:
             if item.required_symbol is None:
@@ -44,9 +46,9 @@ def parse(grammar, tokens, token_symbol=None):
                     states[i].add(item.step(*grammar[item.required_symbol][()]()))
                 for sequence in grammar[item.required_symbol]:
                     states[i].add(_Item(i, item.required_symbol, sequence))
-            elif item.required_symbol == token_symbol(token):
+            elif item.required_symbol == token.symbol:
                 states[i + 1].add(item.step(token))
     states.pop()
     for item in states[-1]:
         if item[:-1] == start_item.step()[:-1]:
-            yield item.children[0][0]
+            yield item.children[0]
