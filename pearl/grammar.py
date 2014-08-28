@@ -1,137 +1,194 @@
-from itertools import compress as _compress
-from itertools import chain as _chain
+def _validate_tag(tag):
+    if tag != '':
+        pass
+    else:
+        raise AssertionError('Tag must not be empty')
 
 
-class _BracketConstructible(type):
-    def __getitem__(cls, args):
-        return cls(args)
+def _validate_head(head):
+    if isinstance(head, str):
+        _validate_tag(head)
+    else:
+        raise AssertionError('Head tag must be str')
 
 
-def _validate_symbol(symbol):
-    if not isinstance(symbol, str):
-        raise TypeError('Each symbol must be a string, not ' + symbol.__class__.__name__ + '.')
-    if symbol == '':
-        raise ValueError('A symbol must not be empty string.')
+def _validate_element(element):
+    if isinstance(element, str):
+        _validate_tag(element)
+    elif isinstance(element, set):
+        if len(element) == 1:
+            if isinstance(next(iter(element)), str):
+                _validate_tag(next(iter(element)))
+            else:
+                raise AssertionError('Discarded elements must be a str')
+        else:
+            raise AssertionError('Elements can only be discarded one by one')
+    else:
+        raise AssertionError('Element must be str or set')
 
 
-def _validate_rule(symbol, sequence, folder):
-    _validate_symbol(symbol)
-
+def _validate_sequence(sequence):
     if isinstance(sequence, list):
         for element in sequence:
-            if isinstance(element, str):
-                _validate_symbol(symbol)
-            elif isinstance(element, set):
-                if len(element) != 1:
-                    raise ValueError('Suppressed elements can comprise only one symbol.')
-                _validate_symbol(next(iter(element)))
-            else:
-                raise TypeError('Each body element must be a string or a set, not' + element.__class__.__name__ + '.')
+            _validate_element(element)
     else:
-        raise TypeError('Each rule body must be a list, not ' + sequence.__class__.__name__ + '.')
-
-    if folder is not None and not callable(folder):
-        raise TypeError('If folder is specified, it must be a callable, not ' + folder.__class__.__name__ + '.')
+        raise AssertionError('Sequence must be list')
 
 
-def _validate_rules(rules):
-    if not isinstance(rules, tuple):
-        rules = rules,
-
-    for rule in rules:
-        if not isinstance(rule, slice):
-            raise TypeError('Each rule must be a slice, not ' + rule.__class__.__name__ + '.')
-        _validate_rule(rule.start, rule.stop, rule.step)
+def _validate_fold(fold):
+    if fold is None or callable(fold):
+        pass
+    else:
+        raise AssertionError('Fold must be callable or None')
 
 
-def _build_rule(sequence, folder):
-    selector = tuple(not isinstance(element, set) for element in sequence)
-    sequence = tuple(element if selector[i] else next(iter(element)) for i, element in enumerate(sequence))
-
-    def transform(*children):
-        children = _compress(children, selector)
-        children = _chain(*children)
-        if folder is None:
-            return tuple(children)
-        return folder(*children),
-
-    return sequence, transform
+def _validate_rule(rule):
+    if isinstance(rule, slice):
+        _validate_head(rule.start)
+        _validate_sequence(rule.stop)
+        _validate_fold(rule.step)
+        if len(rule.stop) == 0 and rule.step is not None:
+            raise AssertionError('Rule with empty sequence must have no fold')
+    else:
+        raise AssertionError('Rule must be slice')
 
 
-def _build_rules(rules):
-    if not isinstance(rules, tuple):
-        rules = rules,
-    rules = list((rule.start, rule.stop, rule.step) for rule in rules)
-    symbols = [rule[0] for rule in rules]
-    start_symbol = symbols[0]
-    rules = {symbol: dict(_build_rule(*rule[1:]) for rule in rules if rule[0] == symbol) for symbol in set(symbols)}
-    nullables = _compute_nullables(rules)
-    return start_symbol, rules, nullables
+def _validate_grammar(grammar):
+    if isinstance(grammar, tuple):
+        for rule in grammar:
+            _validate_rule(rule)
+    elif isinstance(grammar, slice):
+        _validate_rule(grammar)
+    else:
+        raise AssertionError('Grammar must be a tuple or a slice')
 
 
-def _compute_nullables(rules):
-    nullables = {symbol for symbol in rules if () in rules[symbol]}
-
-    def is_nullable(symbol):
-        return symbol in nullables
-
-    def add_nullable(symbol):
-        nullables.add(symbol)
-
-    def should_be_nullable(symbol):
-        return any(all(is_nullable(symbol) for symbol in sequence) for sequence in rules[symbol])
-
-    new = True
-    while new:
-        new = False
-        for symbol in rules:
-            if not is_nullable(symbol) and should_be_nullable(symbol):
-                add_nullable(symbol)
-                new = True
-
-    return nullables
+def _normalize_rule(rule):
+    return rule.start, rule.stop, rule.step
 
 
-class Grammar(metaclass=_BracketConstructible):
+def _normalize_grammar(grammar):
+    if isinstance(grammar, slice):
+        grammar = grammar,
+    return list(map(_normalize_rule, grammar))
+
+
+def _compile_body(sequence_and_selector, fold):
+    sequence = []
+    selector = []
+    for element in sequence_and_selector:
+        selected = not isinstance(element, set)
+        if not selected:
+            element = next(iter(element))
+        sequence.append(element)
+        selector.append(selected)
+    sequence = tuple(sequence)
+    selector = tuple(selector)
+    return Grammar.Rule.Body(sequence, selector, fold)
+
+
+def _compile_rule(tag, sequences_selectors_and_folds):
+    bodies = []
+    for sequence_and_selector, fold in sequences_selectors_and_folds:
+        body = _compile_body(sequence_and_selector, fold)
+        bodies.append(body)
+    return Grammar.Rule(tag, bodies)
+
+
+def _compile_grammar(grammar):
+    rules = []
+    for tag, _, _ in grammar:
+        if any(rule.tag == tag for rule in rules):
+            continue
+        sequences_selectors_and_folds = []
+        for some_tag, sequence_and_selector, fold in grammar:
+            if some_tag == tag:
+                sequences_selectors_and_folds.append((sequence_and_selector, fold))
+        rule = _compile_rule(tag, sequences_selectors_and_folds)
+        rules.append(rule)
+    return Grammar(rules)
+
+
+class _GrammarMeta(type):
+    def __getitem__(self, grammar):
+        if __debug__:
+            _validate_grammar(grammar)
+        grammar = _normalize_grammar(grammar)
+        grammar = _compile_grammar(grammar)
+        return grammar
+
+
+class Grammar(metaclass=_GrammarMeta):
     class Rule:
-        def __init__(self, transforms, nullable):
-            self._transforms = transforms
-            self._nullable = nullable
+        class Body:
+            @property
+            def sequence(self):
+                return self._sequence
+
+            @property
+            def selector(self):
+                return self._selector
+
+            @property
+            def fold(self):
+                return self._fold
+
+            def __init__(self, sequence, selector, fold=None):
+                self._sequence = sequence
+                self._selector = selector
+                self._fold = fold
+
+        @property
+        def tag(self):
+            return self._tag
 
         def __len__(self):
-            return len(self._transforms)
-
-        def __getitem__(self, sequence):
-            return self._transforms[sequence]
+            return len(self._bodies)
 
         def __iter__(self):
-            return iter(self._transforms)
+            return iter(self._bodies.values())
 
         def __contains__(self, sequence):
-            return sequence in self._transforms
+            return sequence in self._bodies
+
+        def __getitem__(self, sequence):
+            return self._bodies[sequence]
 
         @property
         def nullable(self):
             return self._nullable
 
-    def __init__(self, rules):
-        _validate_rules(rules)
-        start_symbol, rules, nullables = _build_rules(rules)
-        self._start_symbol = start_symbol
-        self._rules = {symbol: Grammar.Rule(rules[symbol], symbol in nullables) for symbol in rules}
+        def __init__(self, tag, bodies, nullable=None):
+            self._tag = tag
+            self._bodies = {body.sequence: body for body in bodies}
+            self._nullable = nullable
 
     @property
-    def start_symbol(self):
-        return self._start_symbol
+    def start_rule(self):
+        return self._start_rule
 
     def __len__(self):
         return len(self._rules)
 
-    def __getitem__(self, symbol):
-        return self._rules[symbol]
-
     def __iter__(self):
-        return iter(self._rules)
+        return iter(self._rules.values())
 
-    def __contains__(self, symbol):
-        return symbol in self._rules
+    def __contains__(self, tag):
+        return tag in self._rules
+
+    def __getitem__(self, tag):
+        return self._rules[tag]
+
+    def __init__(self, rules):
+        nullable_tags = {rule.tag for rule in rules if () in rule}
+        new_nullable = len(nullable_tags) > 0
+        while new_nullable:
+            new_nullable = False
+            for rule in rules:
+                if rule.tag not in nullable_tags:
+                    if any(all(tag in nullable_tags for tag in body.sequence) for body in rule):
+                        nullable_tags.add(rule.tag)
+                        new_nullable = True
+        rules = [Grammar.Rule(rule.tag, list(rule), rule.tag in nullable_tags) for rule in rules]
+        self._start_rule = rules[0]
+        self._rules = {rule.tag: rule for rule in rules}
