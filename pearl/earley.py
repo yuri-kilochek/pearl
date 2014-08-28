@@ -36,9 +36,9 @@ class _Sentinel:
 def _transform(selector, fold, value_groups):
     value_groups = (value_group for value_group, selected in zip(value_groups, selector) if selected)
     values = (value for value_group in value_groups for value in value_group)
-    if fold is None:
-        return tuple(values)
-    return fold(*values),
+    if fold is not None:
+        values = [fold(*values)]
+    return tuple(values)
 
 
 def parse(grammar, tokens):

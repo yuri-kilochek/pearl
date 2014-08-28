@@ -180,15 +180,15 @@ class Grammar(metaclass=_GrammarMeta):
         return self._rules[tag]
 
     def __init__(self, rules):
-        nullable_tags = {rule.tag for rule in rules if () in rule}
-        new_nullable = len(nullable_tags) > 0
+        nullables = {rule.tag for rule in rules if () in rule}
+        new_nullable = len(nullables) > 0
         while new_nullable:
             new_nullable = False
             for rule in rules:
-                if rule.tag not in nullable_tags:
-                    if any(all(tag in nullable_tags for tag in body.sequence) for body in rule):
-                        nullable_tags.add(rule.tag)
+                if rule.tag not in nullables:
+                    if any(all(tag in nullables for tag in body.sequence) for body in rule):
+                        nullables.add(rule.tag)
                         new_nullable = True
-        rules = [Grammar.Rule(rule.tag, list(rule), rule.tag in nullable_tags) for rule in rules]
+        rules = [Grammar.Rule(rule.tag, list(rule), rule.tag in nullables) for rule in rules]
         self._start_rule = rules[0]
         self._rules = {rule.tag: rule for rule in rules}
