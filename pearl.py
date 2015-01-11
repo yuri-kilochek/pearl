@@ -5,109 +5,107 @@ from itertools import chain as _chain
 
 class _GrammarMeta(type):
     def __getitem__(cls, rules):
-        grammar = cls()
+        def build_rules(rules):
+            def build_rule(rule):
+                def build_nonterminal(nonterminal):
+                    assert type(nonterminal) == str and nonterminal
+                    return nonterminal
 
-        if type(rules) == slice:
-            rules = [rules]
+                def build_body(elements):
+                    assert type(elements) == list
+                    body, discarded_elements = list(), set()
+                    for i, element in enumerate(elements):
+                        if type(element) == set:
+                            assert len(element) == 1
+                            element = element.pop()
+                            discarded_elements.add(i)
+                        assert type(element) == str and element
+                        body.append(element)
+                    return tuple(body), frozenset(discarded_elements)
 
-        for rule in rules:
-            assert type(rule) == slice
+                def build_tie(discarded_elements, user_tie):
+                    def tie(*vss):
+                        vs = (v for i, vs in enumerate(vss) if i not in discarded_elements for v in vs)
+                        if user_tie is None:
+                            return tuple(vs)
+                        return user_tie(*vs),
 
-            assert type(rule.start) == str and rule.start
-            head = rule.start
+                    assert user_tie is None or callable(user_tie)
+                    return tie
 
-            assert type(rule.stop) == list
-            body = []
-            enabled_map = []
-            for element in rule.stop:
-                enabled = type(element) != set
-                if enabled:
-                    symbol = element
-                else:
-                    symbol = element.pop()
-                assert type(symbol == str)
-                body.append(symbol)
-                enabled_map.append(enabled)
+                assert type(rule) == slice
 
-            def _build_fold(user_fold, enabled_map):
-                def fold(*vss):
-                    assert len(vss) == len(enabled_map)
-                    vs = tuple(v for vs, e in zip(vss, enabled_map) if e for v in vs)
-                    if user_fold is not None:
-                        vs = user_fold(*vs),
-                    return vs
-                return fold
-            assert rule.step is None or callable(rule.step)
-            fold = _build_fold(rule.step, enabled_map)
+                nonterminal = build_nonterminal(rule.start)
+                body, discarded_elements = build_body(rule.stop)
+                tie = build_tie(discarded_elements, rule.step)
 
-            grammar.put(head, body, fold)
+                return nonterminal, body, tie
 
-        return grammar
+            if type(rules) != tuple:
+                rules = [rules]
+
+            for rule in rules:
+                yield build_rule(rule)
+
+        return cls(build_rules(rules))
+
+
+def default_tie(*vss):
+    return tuple(v for vs in vss for v in vs)
 
 
 class Grammar(metaclass=_GrammarMeta):
-    @staticmethod
-    def default_fold(*vss):
-        return tuple(v for vs in vss for v in vs)
+    def __init__(self, rules=()):
+        self.__rules = dict()
+        for head, body, tie in rules:
+            self.put(head, body, tie)
+        self.__nullables = None
 
-    def __init__(self):
-        self.__start = '__start__'
-        self.__rule_sets = _defaultdict(dict)
-        self.__nullable_set = None
+    def __getitem__(self, nonterminal):
+        assert type(nonterminal) == str and nonterminal
+        rule_group = self.__rules.get(nonterminal, dict())
+        return rule_group.values()
 
-    @property
-    def start(self):
-        return self.__start
+    def put(self, nonterminal, body, tie=default_tie):
+        assert type(nonterminal) == str
+        assert type(body) == tuple and all(type(s) == str and s for s in body)
+        assert callable(tie)
+        rule_group = self.__rules.setdefault(nonterminal, dict())
+        rule_group[body] = nonterminal, body, tie
+        self.__nullables = None
 
-    @start.setter
-    def start(self, start):
-        assert type(start) == str and start
-        self.__start = start
-
-    def __getitem__(self, head):
-        assert type(head) == str and head
-        for body, fold in self.__rule_sets[head].items():
-            yield head, body, fold
+    def drop(self, nonterminal, body=None):
+        assert type(nonterminal) == str and nonterminal
+        if nonterminal in self.__rules:
+            if body is None:
+                self.__rules.pop(nonterminal, None)
+            else:
+                assert type(body) == tuple and all(type(s) == str and s for s in body)
+                rule_group = self.__rules[nonterminal]
+                rule_group.pop(body, None)
+                if not rule_group:
+                    del self.__rules[nonterminal]
+        self.__nullables = None
 
     def is_terminal(self, symbol):
         assert type(symbol) == str and symbol
-        return symbol not in self.__rule_sets or not self.__rule_sets[symbol]
-
-    def put(self, head, body, fold=None):
-        assert type(head) == str
-        body = tuple(body)
-        assert all(type(s) == str and s for s in body)
-        if fold is None:
-            fold = Grammar.default_fold
-        assert callable(fold)
-        self.__rule_sets[head][body] = fold
-        self.__nullable_set = None
-
-    def drop(self, head, body=None):
-        assert type(head) == str and head
-        if body is None:
-            self.__rule_sets.pop(head, None)
-        else:
-            body = tuple(body)
-            assert all(type(s) == str and s for s in body)
-            self.__rule_sets[head].pop(body, None)
-        self.__nullable_set = None
+        return symbol not in self.__rules
 
     def is_nullable(self, symbol):
         assert type(symbol) == str and symbol
-        if self.__nullable_set is None:
-            self.__nullable_set = set()
+        if self.__nullables is None:
+            self.__nullables = set()
             while True:
                 new_nullable = False
-                for head, rule_set in self.__rule_sets.items():
-                    if head in self.__nullable_set:
+                for head, rule_group in self.__rules.items():
+                    if head in self.__nullables:
                         continue
-                    if any(all(s in self.__nullable_set for s in b) for b, _ in rule_set.items()):
-                        self.__nullable_set.add(head)
+                    if any(all(s in self.__nullables for s in b) for b, _ in rule_group.items()):
+                        self.__nullables.add(head)
                         new_nullable = True
                 if not new_nullable:
                     break
-        return symbol in self.__nullable_set
+        return symbol in self.__nullables
 
 
 class _Item:
@@ -209,7 +207,7 @@ def _parse(grammar, tokens, **settings):
 
     state = _State()
 
-    for rule in grammar[grammar.start]:
+    for rule in grammar['__start__']:
         state.push(_Item(None, rule))
 
     for token in _chain(tokens, [_END]):
