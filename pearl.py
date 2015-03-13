@@ -50,66 +50,51 @@ class _GrammarMeta(type):
         return cls(build_rules(rules))
 
 
-def default_tie(*vss):
+def default_transform(*vss):
     return tuple(v for vs in vss for v in vs)
 
 
 class Grammar(metaclass=_GrammarMeta):
     def __init__(self, rules=()):
-        self.__rules = dict()
-        for head, body, tie in rules:
-            self.put(head, body, tie)
-        self.__nullables = None
+        self.__rule_groups = _defaultdict(dict)
+        for nonterminal, body, transform in rules:
+            self.__rule_groups[nonterminal][body] = nonterminal, body, transform
+
+        self.__nullables = {s for s, rg in self.__rule_groups.items() if () in rg}
+        new_nullable = self.__nullables
+        while new_nullable:
+            new_nullable = False
+            for nonterminal, rule_group in self.__rule_groups.items():
+                if nonterminal in self.__nullables:
+                    continue
+                if any(all(s in self.__nullables for s in b) for b in rule_group):
+                    self.__nullables.add(nonterminal)
+                    new_nullable = True
 
     def __getitem__(self, nonterminal):
         assert type(nonterminal) == str and nonterminal
-        rule_group = self.__rules.get(nonterminal, dict())
-        return rule_group.values()
+        return self.__rule_groups[nonterminal].values()
 
-    def put(self, nonterminal, body, tie=default_tie):
+    def add(self, nonterminal, body, transform=default_transform):
         assert type(nonterminal) == str
         assert type(body) == tuple and all(type(s) == str and s for s in body)
-        assert callable(tie)
-        rule_group = self.__rules.setdefault(nonterminal, dict())
-        rule_group[body] = nonterminal, body, tie
-        self.__nullables = None
-
-    def drop(self, nonterminal, body=None):
-        assert type(nonterminal) == str and nonterminal
-        if nonterminal in self.__rules:
-            if body is None:
-                self.__rules.pop(nonterminal, None)
-            else:
-                assert type(body) == tuple and all(type(s) == str and s for s in body)
-                rule_group = self.__rules[nonterminal]
-                rule_group.pop(body, None)
-                if not rule_group:
-                    del self.__rules[nonterminal]
-        self.__nullables = None
+        assert callable(transform)
+        old = (r for rg in self.__rule_groups.values() for r in rg.values())
+        new = [(nonterminal, body, transform)]
+        return Grammar(_chain(old, new))
 
     def is_terminal(self, symbol):
         assert type(symbol) == str and symbol
-        return symbol not in self.__rules
+        return symbol not in self.__rule_groups or not self.__rule_groups[symbol]
 
     def is_nullable(self, symbol):
         assert type(symbol) == str and symbol
-        if self.__nullables is None:
-            self.__nullables = set()
-            while True:
-                new_nullable = False
-                for head, rule_group in self.__rules.items():
-                    if head in self.__nullables:
-                        continue
-                    if any(all(s in self.__nullables for s in b) for b, _ in rule_group.items()):
-                        self.__nullables.add(head)
-                        new_nullable = True
-                if not new_nullable:
-                    break
         return symbol in self.__nullables
 
 
 class _Item:
     __slots__ = [
+        '__grammar',
         '__dependents',
         '__rule',
         '__body_results'
