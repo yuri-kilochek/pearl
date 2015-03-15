@@ -3,111 +3,20 @@ from collections import deque as _deque
 from itertools import chain as _chain
 
 
-class _GrammarMeta(type):
-    def __getitem__(cls, rules):
-        def build_rules(rules):
-            def build_rule(rule):
-                def build_nonterminal(nonterminal):
-                    assert type(nonterminal) == str and nonterminal
-                    return nonterminal
-
-                def build_body(elements):
-                    assert type(elements) == list
-                    body, discarded_elements = list(), set()
-                    for i, element in enumerate(elements):
-                        if type(element) == set:
-                            assert len(element) == 1
-                            element = element.pop()
-                            discarded_elements.add(i)
-                        assert type(element) == str and element
-                        body.append(element)
-                    return tuple(body), frozenset(discarded_elements)
-
-                def build_tie(discarded_elements, user_tie):
-                    def tie(*vss):
-                        vs = (v for i, vs in enumerate(vss) if i not in discarded_elements for v in vs)
-                        if user_tie is None:
-                            return tuple(vs)
-                        return user_tie(*vs),
-
-                    assert user_tie is None or callable(user_tie)
-                    return tie
-
-                assert type(rule) == slice
-
-                nonterminal = build_nonterminal(rule.start)
-                body, discarded_elements = build_body(rule.stop)
-                tie = build_tie(discarded_elements, rule.step)
-
-                return nonterminal, body, tie
-
-            if type(rules) != tuple:
-                rules = [rules]
-
-            for rule in rules:
-                yield build_rule(rule)
-
-        return cls(build_rules(rules))
+def default_transform(*grammar_and_results):
+    assert len(grammar_and_results) > 0
+    return grammar_and_results
 
 
-def default_transform(*vss):
-    return tuple(v for vs in vss for v in vs)
-
-
-class Grammar(metaclass=_GrammarMeta):
-    def __init__(self, rules=()):
-        self.__rule_groups = _defaultdict(dict)
-        for nonterminal, body, transform in rules:
-            self.__rule_groups[nonterminal][body] = nonterminal, body, transform
-
-        self.__nullables = {s for s, rg in self.__rule_groups.items() if () in rg}
-        new_nullable = self.__nullables
-        while new_nullable:
-            new_nullable = False
-            for nonterminal, rule_group in self.__rule_groups.items():
-                if nonterminal in self.__nullables:
-                    continue
-                if any(all(s in self.__nullables for s in b) for b in rule_group):
-                    self.__nullables.add(nonterminal)
-                    new_nullable = True
-
-    def __getitem__(self, nonterminal):
-        assert type(nonterminal) == str and nonterminal
-        return self.__rule_groups[nonterminal].values()
-
-    def add(self, nonterminal, body, transform=default_transform):
-        assert type(nonterminal) == str
-        assert type(body) == tuple and all(type(s) == str and s for s in body)
-        assert callable(transform)
-        old = (r for rg in self.__rule_groups.values() for r in rg.values())
-        new = [(nonterminal, body, transform)]
-        return Grammar(_chain(old, new))
-
-    def is_terminal(self, symbol):
-        assert type(symbol) == str and symbol
-        return symbol not in self.__rule_groups or not self.__rule_groups[symbol]
-
-    def is_nullable(self, symbol):
-        assert type(symbol) == str and symbol
-        return symbol in self.__nullables
-
-
-class _Item:
-    __slots__ = [
-        '__grammar',
-        '__dependents',
-        '__rule',
-        '__body_results'
-    ]
-
-    def __init__(self, dependents, rule, body_results=()):
-        self.__dependents = dependents
-        self.__rule = rule
-        self.__body_results = body_results
+class _Rule:
+    def __init__(self, head, body, transform):
+        self.__head = head
+        self.__body = body
+        self.__transform = transform
 
     @property
     def __key(self):
-        return id(self.__dependents), self.__rule, self.__body_results
+        return self.__head, self.__body
 
     def __hash__(self):
         return hash(self.__key)
@@ -116,37 +25,107 @@ class _Item:
         return self.__key == other.__key
 
     @property
-    def dependents(self):
-        return self.__dependents
+    def head(self):
+        return self.__head
 
     @property
-    def rule_head(self):
-        return self.__rule[0]
+    def body(self):
+        return self.__body
 
     @property
-    def rule_body(self):
-        return self.__rule[1]
+    def transform(self):
+        return self.__transform
+
+
+class Grammar:
+    def __init__(self, rules=()):
+        self.__rule_groups = _defaultdict(dict)
+        for rule in rules:
+            assert type(rule) == _Rule
+            self.__rule_groups[rule.head][rule.body] = rule
+        self.__nullables = None
+
+    def __getitem__(self, head):
+        assert type(head) == str and head
+        return self.__rule_groups[head].values()
+
+    def put(self, head, body, transform=default_transform):
+        assert type(head) == str
+        assert type(body) == list and all(type(s) == str and s for s in body)
+        assert callable(transform)
+        old = (r for rg in self.__rule_groups.values() for r in rg.values())
+        new = [_Rule(head, tuple(body), transform)]
+        return Grammar(_chain(old, new))
+
+    def is_terminal(self, symbol):
+        assert type(symbol) == str and symbol
+        return symbol not in self.__rule_groups or not self.__rule_groups[symbol]
+
+    def is_nullable(self, symbol):
+        assert type(symbol) == str and symbol
+
+        if self.__nullables is None:
+            self.__nullables = {s for s, rg in self.__rule_groups.items() if () in rg}
+            new_nullable = self.__nullables
+            while new_nullable:
+                new_nullable = False
+                for head, rule_group in self.__rule_groups.items():
+                    if head in self.__nullables:
+                        continue
+                    if any(all(s in self.__nullables for s in b) for b in rule_group):
+                        self.__nullables.add(head)
+                        new_nullable = True
+
+        return symbol in self.__nullables
+
+
+class _Item:
+    def __init__(self, grammar, rule, parents=frozenset(), results=(), progress=0):
+        self.__grammar = grammar
+        self.__rule = rule
+        self.__parents = parents
+        self.__results = results
+        self.__progress = progress
 
     @property
-    def __rule_fold(self):
-        return self.__rule[2]
+    def __key(self):
+        return id(self.__grammar), id(self.__parents), self.__rule, self.__results, self.__progress
+
+    def __hash__(self):
+        return hash(self.__key)
+
+    def __eq__(self, other):
+        return self.__key == other.__key
+
+    @property
+    def grammar(self):
+        return self.__grammar
+
+    @property
+    def rule(self):
+        return self.__rule
+
+    @property
+    def parents(self):
+        return self.__parents
 
     @property
     def is_complete(self):
-        return len(self.__body_results) == len(self.rule_body)
+        return self.__progress == len(self.__rule.body)
 
     @property
     def expected_symbol(self):
         assert not self.is_complete
-        return self.rule_body[len(self.__body_results)]
+        return self.__rule.body[self.__progress]
 
-    def advance(self, child_result):
+    def get_next(self, grammar, results):
         assert not self.is_complete
-        return _Item(self.__dependents, self.__rule, self.__body_results + (child_result,))
+        return _Item(grammar, self.__rule, self.__parents, self.__results + results, self.__progress + 1)
 
-    def compute_result(self):
+    def finalize(self):
         assert self.is_complete
-        return self.__rule_fold(*self.__body_results)
+        grammar, *results = self.__rule.transform(self.__grammar, *self.__results)
+        return grammar, tuple(results)
 
 
 class _State:
@@ -162,19 +141,18 @@ class _State:
         while self.__queue:
             yield self.__queue.popleft()
 
-    def __getitem__(self, symbol):
-        return self.__expecting[symbol]
+    def __getitem__(self, expected_symbol):
+        return self.__expecting[expected_symbol]
 
-    def push(self, item):
+    def put(self, item):
         if item.is_complete:
-            item_set = self.__complete
+            required_set = self.__complete
         else:
-            item_set = self.__expecting[item.expected_symbol]
-        queue = self.__queue
-        if item in item_set:
+            required_set = self.__expecting[item.expected_symbol]
+        if item in required_set:
             return
-        item_set.add(item)
-        queue.append(item)
+        required_set.add(item)
+        self.__queue.append(item)
 
 
 class ParseError(Exception):
@@ -185,48 +163,47 @@ _END = object()
 
 
 def _parse(grammar, tokens, **settings):
-    match_token = settings.pop('match_token')
+    match = settings.pop('match')
     allow_partial = settings.pop('allow_partial')
 
-    assert not settings, 'Illegal settings: ' + ', '.join(settings)
+    assert not settings, 'Unknown settings: ' + ', '.join(settings)
 
     state = _State()
 
     for rule in grammar['__start__']:
-        state.push(_Item(None, rule))
+        state.put(_Item(grammar, rule))
 
     for token in _chain(tokens, [_END]):
         next_state = _State()
 
         for item in state:
             if item.is_complete:
-                item_result = item.compute_result()
-                if item.dependents is None:
-                    if allow_partial or token is _END:
-                        yield item_result
+                grammar, results = item.finalize()
+                if item.parents:
+                    for parent_item in item.parents:
+                        state.put(parent_item.get_next(grammar, results))
                 else:
-                    for dependent_item in item.dependents:
-                        state.push(dependent_item.advance(item_result))
-            elif not grammar.is_terminal(item.expected_symbol):
-                if grammar.is_nullable(item.expected_symbol):
-                    state.push(item.advance(()))
-                for rule in grammar[item.expected_symbol]:
-                    state.push(_Item(state[item.expected_symbol], rule))
+                    if allow_partial or token is _END:
+                        yield results
+            elif not item.grammar.is_terminal(item.expected_symbol):
+                if item.grammar.is_nullable(item.expected_symbol):
+                    state.put(item.get_next(item.grammar, ()))
+                for rule in item.grammar[item.expected_symbol]:
+                    state.put(_Item(item.grammar, rule, state[item.expected_symbol]))
             elif token is not _END:
-                token_result = match_token(token, item.expected_symbol)
-                if token_result is None:
-                    continue
-                next_state.push(item.advance(tuple(token_result)))
+                result = match(token, item.expected_symbol)
+                if result is not None:
+                    next_state.put(item.get_next(item.grammar, (result,)))
 
         if not next_state and token is not _END:
-            # TODO: error reporting goes here
-            break
+            # TODO: error reporting
+            assert False
 
         state = next_state
 
 
 def parse(grammar, tokens, **settings):
-    settings.setdefault('match_token', lambda token, symbol: [token] if token == symbol else None)
+    settings.setdefault('match', lambda token, terminal: token if token == terminal else None)
     settings.setdefault('allow_partial', False)
 
     return _parse(grammar, tokens, **settings)
