@@ -87,7 +87,7 @@ class _Item:
 
     @property
     def __key(self):
-        return id(self.__grammar), id(self.__parents), self.__rule, self.__results, self.__progress
+        return id(self.__grammar), self.__rule, id(self.__parents), self.__results, self.__progress
 
     def __hash__(self):
         return hash(self.__key)
