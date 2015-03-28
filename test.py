@@ -1,59 +1,6 @@
 import pearl
 
 
-# def simple_math(**c):
-#     return pearl.Grammar[
-#         '__start__': ['expr'],
-#
-#         'expr': ['add/sub'],
-#
-#         'add/sub': ['add/sub', {'+'}, 'mul/div']: c['add'],
-#         'add/sub': ['add/sub', {'-'}, 'mul/div']: c['sub'],
-#         'add/sub': ['mul/div'],
-#
-#         'mul/div': ['mul/div', {'*'}, 'pref']: c['mul'],
-#         'mul/div': ['mul/div', {'/'}, 'pref']: c['div'],
-#         'mul/div': ['pref'],
-#
-#         'pref': [{'+'}, 'pref']: c['pos'],
-#         'pref': [{'-'}, 'pref']: c['neg'],
-#         'pref': ['prim'],
-#
-#         'prim': [{'('}, 'expr', {')'}],
-#         'prim': ['num'],
-#
-#         'num': ['int', 'frac?', 'exp?']:c['num'],
-#
-#         'int': ['dig', 'int'],
-#         'int': ['dig'],
-#
-#         'frac?': ['.', 'int'],
-#         'frac?': [],
-#
-#         'exp?': ['eE', 'sgn?', 'int'],
-#         'exp?': [],
-#
-#         'eE': ['e'],
-#         'eE': ['E'],
-#
-#         'sgn?': ['sgn'],
-#         'sgn?': [],
-#
-#         'sgn': ['+'],
-#         'sgn': ['-'],
-#
-#         'dig': ['0'],
-#         'dig': ['1'],
-#         'dig': ['2'],
-#         'dig': ['3'],
-#         'dig': ['4'],
-#         'dig': ['5'],
-#         'dig': ['6'],
-#         'dig': ['7'],
-#         'dig': ['8'],
-#         'dig': ['9'],
-#     ]
-
 def join(items):
     if isinstance(items, str):
         return items
@@ -202,3 +149,101 @@ def dynamic():
 
 for r in pearl.parse(dynamic(), '!aaaa!bbbbaa'):
     print(r)
+
+
+
+def var_math():
+    g = pearl.Grammar()
+
+    g = g.put('__start__', ['prog'])
+
+    g = g.put('prog', ['def', ';', 'prog'], lambda g, _0, _1, v: (g, v))
+    g = g.put('prog', ['expr'])
+
+    g = g.put('def', ['id', '=', 'expr'], lambda g, n, _, v: (g.put('var', [n], lambda g, _: (g, v)), None))
+
+    g = g.put('id', ['chs'], lambda g, *cs: (g, join(cs)))
+
+    g = g.put('chs', ['ch', 'chs'])
+    g = g.put('chs', ['ch'])
+
+    g = g.put('ch', ['a'])
+    g = g.put('ch', ['b'])
+    g = g.put('ch', ['c'])
+    g = g.put('ch', ['d'])
+    g = g.put('ch', ['e'])
+    g = g.put('ch', ['f'])
+    g = g.put('ch', ['g'])
+    g = g.put('ch', ['h'])
+    g = g.put('ch', ['i'])
+    g = g.put('ch', ['j'])
+    g = g.put('ch', ['k'])
+    g = g.put('ch', ['l'])
+    g = g.put('ch', ['m'])
+    g = g.put('ch', ['n'])
+    g = g.put('ch', ['o'])
+    g = g.put('ch', ['p'])
+    g = g.put('ch', ['q'])
+    g = g.put('ch', ['r'])
+    g = g.put('ch', ['s'])
+    g = g.put('ch', ['t'])
+    g = g.put('ch', ['u'])
+    g = g.put('ch', ['v'])
+    g = g.put('ch', ['w'])
+    g = g.put('ch', ['x'])
+    g = g.put('ch', ['y'])
+    g = g.put('ch', ['z'])
+
+    g = g.put('expr', ['add/sub'])
+
+    g = g.put('add/sub', ['add/sub', '+', 'mul/div'], lambda g, x, _, y: (g, x + y))
+    g = g.put('add/sub', ['add/sub', '-', 'mul/div'], lambda g, x, _, y: (g, x - y))
+    g = g.put('add/sub', ['mul/div'])
+
+    g = g.put('mul/div', ['mul/div', '*', 'pref'], lambda g, x, _, y: (g, x * y))
+    g = g.put('mul/div', ['mul/div', '/', 'pref'], lambda g, x, _, y: (g, x / y))
+    g = g.put('mul/div', ['pref'])
+
+    g = g.put('pref', ['+', 'prim'], lambda g, _, x: (g, +x))
+    g = g.put('pref', ['-', 'prim'], lambda g, _, x: (g, -x))
+    g = g.put('pref', ['prim'])
+
+    g = g.put('prim', ['(', 'expr', ')'], lambda g, _0, x, _1: (g, x))
+    g = g.put('prim', ['num'])
+    g = g.put('prim', ['var'])
+
+    g = g.put('num', ['sgn?', 'int', 'frac?', 'exp?'], lambda g, *cs: (g, float(join(cs))))
+
+    g = g.put('int', ['dig', 'int'])
+    g = g.put('int', ['dig'])
+
+    g = g.put('frac?', ['.', 'int'])
+    g = g.put('frac?', [])
+
+    g = g.put('exp?', ['eE', 'sgn?', 'int'])
+    g = g.put('exp?', [])
+
+    g = g.put('eE', ['e'])
+    g = g.put('eE', ['E'])
+
+    g = g.put('sgn?', ['sgn'])
+    g = g.put('sgn?', [])
+
+    g = g.put('sgn', ['+'])
+    g = g.put('sgn', ['-'])
+
+    g = g.put('dig', ['0'])
+    g = g.put('dig', ['1'])
+    g = g.put('dig', ['2'])
+    g = g.put('dig', ['3'])
+    g = g.put('dig', ['4'])
+    g = g.put('dig', ['5'])
+    g = g.put('dig', ['6'])
+    g = g.put('dig', ['7'])
+    g = g.put('dig', ['8'])
+    g = g.put('dig', ['9'])
+
+    return g
+
+for r, in pearl.parse(var_math(), 'a=2;b=3;a+b+1'):
+    print(r)  # (* 3 (/ 1 2))
