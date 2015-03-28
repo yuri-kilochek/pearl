@@ -2,9 +2,8 @@ from collections import defaultdict as _defaultdict
 from itertools import chain as _chain
 
 
-def default_transform(*grammar_and_results):
-    assert len(grammar_and_results) > 0
-    return grammar_and_results
+def default_transform(grammar, *results):
+    return [grammar] + list(results)
 
 
 class _Rule:
