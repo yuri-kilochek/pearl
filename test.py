@@ -13,23 +13,23 @@ def simple_math(**c):
 
     g = g.put('expr', ['add/sub'])
 
-    g = g.put('add/sub', ['add/sub', '+', 'mul/div'], lambda g, x, op, y: (g, c['add'](x, y)))
-    g = g.put('add/sub', ['add/sub', '-', 'mul/div'], lambda g, x, op, y: (g, c['sub'](x, y)))
+    g = g.put('add/sub', ['add/sub', '+', 'mul/div'], lambda g, x, op, y: [g, c['add'](x, y)])
+    g = g.put('add/sub', ['add/sub', '-', 'mul/div'], lambda g, x, op, y: [g, c['sub'](x, y)])
     g = g.put('add/sub', ['mul/div'])
 
-    g = g.put('mul/div', ['mul/div', '*', 'pref'], lambda g, x, op, y: (g, c['mul'](x, y)))
-    g = g.put('mul/div', ['mul/div', '/', 'pref'], lambda g, x, op, y: (g, c['div'](x, y)))
+    g = g.put('mul/div', ['mul/div', '*', 'pref'], lambda g, x, op, y: [g, c['mul'](x, y)])
+    g = g.put('mul/div', ['mul/div', '/', 'pref'], lambda g, x, op, y: [g, c['div'](x, y)])
     g = g.put('mul/div', ['pref'])
 
-    g = g.put('pref', ['+', 'prim'], lambda g, op, x: (g, c['pos'](x)))
-    g = g.put('pref', ['-', 'prim'], lambda g, op, x: (g, c['neg'](x)))
+    g = g.put('pref', ['+', 'prim'], lambda g, op, x: [g, c['pos'](x)])
+    g = g.put('pref', ['-', 'prim'], lambda g, op, x: [g, c['neg'](x)])
     g = g.put('pref', ['prim'])
 
-    g = g.put('prim', ['(', 'expr', ')'], lambda g, lp, x, rp: (g, x))
+    g = g.put('prim', ['(', 'expr', ')'], lambda g, lp, x, rp: [g, x])
     g = g.put('prim', ['num'])
 
 
-    g = g.put('num', ['sgn?', 'int', 'frac?', 'exp?'], lambda g, *cs: (g, c['num'](join(cs))))
+    g = g.put('num', ['sgn?', 'int', 'frac?', 'exp?'], lambda g, *cs: [g, c['num'](join(cs))])
 
     g = g.put('int', ['dig', 'int'])
     g = g.put('int', ['dig'])
@@ -97,7 +97,7 @@ def ambiguous():
 
     g = g.put('__start__', ['S'])
 
-    g = g.put('S', ['S', '+', 'S'], lambda g, x, op, y: (g, '({} + {})'.format(x, y)))
+    g = g.put('S', ['S', '+', 'S'], lambda g, x, op, y: [g, '({} + {})'.format(x, y)])
     g = g.put('S', ['a'])
 
     return g
@@ -116,7 +116,7 @@ def dynamic():
 
     g = g.put('action', ['define-action'])
 
-    g = g.put('define-action', ['!', 'char'], lambda g, _, c: (g.put('action', [c]), '!', c))
+    g = g.put('define-action', ['!', 'char'], lambda g, _, c: [g.put('action', [c]), '!', c])
 
     g = g.put('char', ['a'])
     g = g.put('char', ['b'])
@@ -157,12 +157,12 @@ def var_math():
 
     g = g.put('__start__', ['prog'])
 
-    g = g.put('prog', ['def', ';', 'prog'], lambda g, _0, _1, v: (g, v))
+    g = g.put('prog', ['def', ';', 'prog'], lambda g, _, v: [g, v])
     g = g.put('prog', ['expr'])
 
-    g = g.put('def', ['id', '=', 'expr'], lambda g, n, _, v: (g.put('var', [n], lambda g, _: (g, v)), None))
+    g = g.put('def', ['id', '=', 'expr'], lambda g, n, _, v: [g.put('var', [n], lambda g, _: (g, v))])
 
-    g = g.put('id', ['chs'], lambda g, *cs: (g, join(cs)))
+    g = g.put('id', ['chs'], lambda g, *cs: [g, join(cs)])
 
     g = g.put('chs', ['ch', 'chs'])
     g = g.put('chs', ['ch'])
@@ -196,23 +196,23 @@ def var_math():
 
     g = g.put('expr', ['add/sub'])
 
-    g = g.put('add/sub', ['add/sub', '+', 'mul/div'], lambda g, x, _, y: (g, x + y))
-    g = g.put('add/sub', ['add/sub', '-', 'mul/div'], lambda g, x, _, y: (g, x - y))
+    g = g.put('add/sub', ['add/sub', '+', 'mul/div'], lambda g, x, _, y: [g, x + y])
+    g = g.put('add/sub', ['add/sub', '-', 'mul/div'], lambda g, x, _, y: [g, x - y])
     g = g.put('add/sub', ['mul/div'])
 
-    g = g.put('mul/div', ['mul/div', '*', 'pref'], lambda g, x, _, y: (g, x * y))
-    g = g.put('mul/div', ['mul/div', '/', 'pref'], lambda g, x, _, y: (g, x / y))
+    g = g.put('mul/div', ['mul/div', '*', 'pref'], lambda g, x, _, y: [g, x * y])
+    g = g.put('mul/div', ['mul/div', '/', 'pref'], lambda g, x, _, y: [g, x / y])
     g = g.put('mul/div', ['pref'])
 
-    g = g.put('pref', ['+', 'prim'], lambda g, _, x: (g, +x))
-    g = g.put('pref', ['-', 'prim'], lambda g, _, x: (g, -x))
+    g = g.put('pref', ['+', 'prim'], lambda g, _, x: [g, +x])
+    g = g.put('pref', ['-', 'prim'], lambda g, _, x: [g, -x])
     g = g.put('pref', ['prim'])
 
-    g = g.put('prim', ['(', 'expr', ')'], lambda g, _0, x, _1: (g, x))
+    g = g.put('prim', ['(', 'expr', ')'], lambda g, _0, x, _1: [g, x])
     g = g.put('prim', ['num'])
     g = g.put('prim', ['var'])
 
-    g = g.put('num', ['sgn?', 'int', 'frac?', 'exp?'], lambda g, *cs: (g, float(join(cs))))
+    g = g.put('num', ['sgn?', 'int', 'frac?', 'exp?'], lambda g, *cs: [g, float(join(cs))])
 
     g = g.put('int', ['dig', 'int'])
     g = g.put('int', ['dig'])
@@ -245,5 +245,5 @@ def var_math():
 
     return g
 
-for r, in pearl.parse(var_math(), 'a=2;b=3;a+b+1'):
+for r, in pearl.parse(var_math(), 'a=2;b=a*a;a+b+1'):
     print(r)  # (* 3 (/ 1 2))
