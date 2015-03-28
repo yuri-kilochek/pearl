@@ -1,76 +1,114 @@
 from collections import defaultdict as _defaultdict
 from itertools import chain as _chain
+from functools import wraps as _wraps
+from inspect import getfullargspec as _getfullargspec
 
 
-def default_transform(grammar, *results):
-    return [grammar] + list(results)
-
-
-class _Rule:
-    def __init__(self, head, body, transform):
-        self.__head = head
-        self.__body = body
-        self.__transform = transform
-
-    @property
-    def __key(self):
-        return self.__head, self.__body
-
-    def __hash__(self):
-        return hash(self.__key)
-
-    def __eq__(self, other):
-        return self.__key == other.__key
-
-    @property
-    def head(self):
-        return self.__head
-
-    @property
-    def body(self):
-        return self.__body
-
-    @property
-    def transform(self):
-        return self.__transform
-
-
-class Grammar:
-    def __init__(self, rules=()):
-        self.__rule_groups = _defaultdict(dict)
+class _GrammarMeta(type):
+    def __getitem__(cls, rules):
+        if type(rules) != tuple:
+            rules = rules,
+        grammar = cls()
         for rule in rules:
-            assert type(rule) == _Rule
-            self.__rule_groups[rule.head][rule.body] = rule
+            assert type(rule) == slice
+            grammar = grammar.put(rule.start, rule.stop, rule.step)
+        return grammar
+
+
+def default_action(*args):
+    if not args:
+        return None
+    assert len(args) == 1
+    return args[0]
+
+
+class Grammar(metaclass=_GrammarMeta):
+    class Rule:
+        def __init__(self, head, body, action):
+            assert type(head) == str and head
+            self.__head = head
+
+            assert type(body) == list
+            _body = []
+            retained = set()
+            for i, element in enumerate(body):
+                if type(element) == set:
+                    element = element.pop()
+                    retained.add(i)
+                assert type(element) == str and element
+                _body.append(element)
+            self.__body = tuple(_body)
+            retained = frozenset(retained)
+
+            if action is None:
+                action = default_action
+            assert callable(action)
+            def build_action():
+                argspec = _getfullargspec(action)
+                @_wraps(action)
+                def raw_action(values, tokens, grammar):
+                    args = [v for i, v in enumerate(values) if i in retained]
+                    kwargs = {}
+                    if '_tokens_' in argspec.kwonlyargs:
+                        kwargs['_tokens_'] = tokens
+                    if '_grammar_' in argspec.kwonlyargs:
+                        kwargs['_grammar_'] = grammar
+                    result = action(*args, **kwargs)
+                    if '_grammar_' in argspec.kwonlyargs:
+                        result, grammar = result
+                    return result, grammar
+                return raw_action
+            self.__action = build_action()
+
+        @property
+        def head(self):
+            return self.__head
+
+        @property
+        def body(self):
+            return self.__body
+
+        @property
+        def action(self):
+            return self.__action
+
+    def __init__(self, rules=()):
+        rule_sets = _defaultdict(set)
+        for rule in rules:
+            assert type(rule) == Grammar.Rule
+            rule_sets[rule.head].add(rule)
+        self.__rule_sets = {h: frozenset(rs) for h, rs in rule_sets.items()}
+
         self.__nullables = None
 
     def __getitem__(self, head):
         assert type(head) == str and head
-        return self.__rule_groups[head].values()
+        return self.__rule_sets.get(head, frozenset())
 
-    def put(self, head, body, transform=default_transform):
-        assert type(head) == str
-        assert type(body) == list and all(type(s) == str and s for s in body)
-        assert callable(transform)
-        old = (r for rg in self.__rule_groups.values() for r in rg.values())
-        new = [_Rule(head, tuple(body), transform)]
+    def put(self, head, body, action=default_action):
+        old = (r for rs in self.__rule_sets.values() for r in rs)
+        new = [Grammar.Rule(head, body, action)]
         return Grammar(_chain(old, new))
+
+    def drop(self, head):
+        return Grammar(r for rs in self.__rule_sets.values() for r in rs if r.head != head)
 
     def is_terminal(self, symbol):
         assert type(symbol) == str and symbol
-        return symbol not in self.__rule_groups or not self.__rule_groups[symbol]
+        return symbol not in self.__rule_sets
 
     def is_nullable(self, symbol):
         assert type(symbol) == str and symbol
 
         if self.__nullables is None:
-            self.__nullables = {s for s, rg in self.__rule_groups.items() if () in rg}
-            new_nullable = self.__nullables
+            self.__nullables = {h for h, rs in self.__rule_sets.items() if any(not r.body for r in rs)}
+            new_nullable = bool(self.__nullables)
             while new_nullable:
                 new_nullable = False
-                for head, rule_group in self.__rule_groups.items():
+                for head, rule_set in self.__rule_sets.items():
                     if head in self.__nullables:
                         continue
-                    if any(all(s in self.__nullables for s in b) for b in rule_group):
+                    if any(all(s in self.__nullables for s in r.body) for r in rule_set):
                         self.__nullables.add(head)
                         new_nullable = True
 
@@ -78,16 +116,16 @@ class Grammar:
 
 
 class _Item:
-    def __init__(self, grammar, rule, parents=frozenset(), results=(), progress=0):
+    def __init__(self, grammar, rule, parents=frozenset(), values=(), tokens=()):
         self.__grammar = grammar
         self.__rule = rule
         self.__parents = parents
-        self.__results = results
-        self.__progress = progress
+        self.__values = values
+        self.__tokens = tokens
 
     @property
     def __key(self):
-        return id(self.__grammar), self.__rule, id(self.__parents), self.__results, self.__progress
+        return self.__grammar, self.__rule, id(self.__parents), self.__values
 
     def __hash__(self):
         return hash(self.__key)
@@ -109,21 +147,21 @@ class _Item:
 
     @property
     def is_complete(self):
-        return self.__progress == len(self.__rule.body)
+        return len(self.__values) == len(self.__rule.body)
 
     @property
     def expected_symbol(self):
         assert not self.is_complete
-        return self.__rule.body[self.__progress]
+        return self.__rule.body[len(self.__values)]
 
-    def get_next(self, grammar, results):
+    def get_next(self, grammar, value, tokens):
         assert not self.is_complete
-        return _Item(grammar, self.__rule, self.__parents, self.__results + results, self.__progress + 1)
+        return _Item(grammar, self.__rule, self.__parents, self.__values + (value,), self.__tokens + tokens)
 
     def finalize(self):
         assert self.is_complete
-        grammar, *results = self.__rule.transform(self.__grammar, *self.__results)
-        return grammar, tuple(results)
+        result, grammar = self.__rule.action(self.__values, self.__tokens, self.__grammar)
+        return result, self.__tokens, grammar
 
 
 class _State:
@@ -162,15 +200,16 @@ class ParseError(Exception):
 _END = object()
 
 
-def _parse(grammar, tokens, **settings):
-    match = settings.pop('match')
-    allow_partial = settings.pop('allow_partial')
+def default_match(token, terminal):
+    if token == terminal:
+        return token
+    return None
 
-    assert not settings, 'Unknown settings: ' + ', '.join(settings)
 
+def parse(grammar, tokens, *, match=default_match, allow_partial=False):
     state = _State()
 
-    for rule in grammar['__start__']:
+    for rule in grammar['_start_']:
         state.put(_Item(grammar, rule))
 
     for token in _chain(tokens, [_END]):
@@ -178,31 +217,24 @@ def _parse(grammar, tokens, **settings):
 
         for item in state:
             if item.is_complete:
-                grammar, results = item.finalize()
+                result, tokens, grammar = item.finalize()
                 if item.parents:
                     for parent_item in item.parents:
-                        state.put(parent_item.get_next(grammar, results))
+                        state.put(parent_item.get_next(grammar, result, tokens))
                 else:
                     if allow_partial or token is _END:
-                        yield results
+                        yield result
             elif not item.grammar.is_terminal(item.expected_symbol):
                 if item.grammar.is_nullable(item.expected_symbol):
-                    state.put(item.get_next(item.grammar, ()))
+                    state.put(item.get_next(item.grammar, None, ()))
                 for rule in item.grammar[item.expected_symbol]:
                     state.put(_Item(item.grammar, rule, state[item.expected_symbol]))
             elif token is not _END:
                 result = match(token, item.expected_symbol)
                 if result is not None:
-                    next_state.put(item.get_next(item.grammar, (result,)))
+                    next_state.put(item.get_next(item.grammar, result, (token,)))
 
         if not next_state and token is not _END:
             raise ParseError()
 
         state = next_state
-
-
-def parse(grammar, tokens, **settings):
-    settings.setdefault('match', lambda token, terminal: token if token == terminal else None)
-    settings.setdefault('allow_partial', False)
-
-    return _parse(grammar, tokens, **settings)
