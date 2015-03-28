@@ -1,5 +1,4 @@
 from collections import defaultdict as _defaultdict
-from collections import deque as _deque
 from itertools import chain as _chain
 
 
@@ -132,14 +131,16 @@ class _State:
     def __init__(self):
         self.__complete = set()
         self.__expecting = _defaultdict(set)
-        self.__queue = _deque()
+        self.__order = []
 
     def __bool__(self):
-        return bool(self.__queue)
+        return bool(self.__order)
 
     def __iter__(self):
-        while self.__queue:
-            yield self.__queue.popleft()
+        i = 0
+        while i < len(self.__order):
+            yield self.__order[i]
+            i += 1
 
     def __getitem__(self, expected_symbol):
         return self.__expecting[expected_symbol]
@@ -152,7 +153,7 @@ class _State:
         if item in required_set:
             return
         required_set.add(item)
-        self.__queue.append(item)
+        self.__order.append(item)
 
 
 class ParseError(Exception):
@@ -196,8 +197,7 @@ def _parse(grammar, tokens, **settings):
                     next_state.put(item.get_next(item.grammar, (result,)))
 
         if not next_state and token is not _END:
-            # TODO: error reporting
-            assert False
+            raise ParseError()
 
         state = next_state
 
