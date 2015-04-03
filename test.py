@@ -1,34 +1,41 @@
 import pearl
 
 
-def ident(fn):
-    def wrapper(*args, **kwargs):
-        return fn(*args, **kwargs)
-    return wrapper
-
+def flatten_symbols(*items):
+    items = list(items)
+    i = 0
+    while i < len(items):
+        if items[i].__class__ != str:
+            try:
+                items[i:i+1] = items[i]
+            except TypeError:
+                i += 1
+        else:
+            i += 1
+    return items
 
 def simple_math(**c):
     return pearl.Grammar[
-        '_start_': [{'expr'}],
+        '_start_': ['expr'],
 
-        'expr': [{'add/sub'}],
+        'expr': ['add/sub'],
 
-        'add/sub': [{'add/sub'}, '+', {'mul/div'}]: ident(c['add']),
-        'add/sub': [{'add/sub'}, '-', {'mul/div'}]: ident(c['sub']),
-        'add/sub': [{'mul/div'}],
+        'add/sub': ['add/sub', {'+'}, 'mul/div']: lambda x, y: [c['add'](x, y)],
+        'add/sub': ['add/sub', {'-'}, 'mul/div']: lambda x, y: [c['sub'](x, y)],
+        'add/sub': ['mul/div'],
 
-        'mul/div': [{'mul/div'}, '*', {'pref'}]: ident(c['mul']),
-        'mul/div': [{'mul/div'}, '/', {'pref'}]: ident(c['div']),
-        'mul/div': [{'pref'}],
+        'mul/div': ['mul/div', {'*'}, 'pref']: lambda x, y: [c['mul'](x, y)],
+        'mul/div': ['mul/div', {'/'}, 'pref']: lambda x, y: [c['div'](x, y)],
+        'mul/div': ['pref'],
 
-        'pref': ['+', {'prim'}]: ident(c['pos']),
-        'pref': ['-', {'prim'}]: ident(c['neg']),
-        'pref': [{'prim'}],
+        'pref': [{'+'}, 'prim']: lambda x: [c['pos'](x)],
+        'pref': [{'-'}, 'prim']: lambda x: [c['neg'](x)],
+        'pref': ['prim'],
 
-        'prim': ['(', {'expr'}, ')'],
-        'prim': [{'num'}],
+        'prim': [{'('}, 'expr', {')'}],
+        'prim': ['num'],
 
-        'num': ['sgn?', 'int', 'frac?', 'exp?']: lambda *, _tokens_: c['num'](''.join(_tokens_)),
+        'num': ['sgn?', 'int', 'frac?', 'exp?']: lambda *cs: [c['num'](''.join(cs))],
 
         'int': ['dig', 'int'],
         'int': ['dig'],
@@ -77,88 +84,78 @@ evaluate = simple_math(
     div=lambda x, y: x / y,
     pos=lambda x: +x,
     neg=lambda x: -x,
-    num=float
+    num=float,
 )
 
 
 expression = '3*(1/2)'
 
-for r in pearl.parse(sexpress, expression):
+for r, in pearl.parse(sexpress, expression):
     print(r)  # (* 3 (/ 1 2))
 
-for r in pearl.parse(evaluate, expression):
+for r, in pearl.parse(evaluate, expression):
     print(r)  # 1.5
 
 
 ambiguous = pearl.Grammar[
-    '_start_': [{'S'}],
+    '_start_': ['S'],
 
-    'S': [{'S'}, '+', {'S'}]: ident('({} + {})'.format),
-    'S': [{'a'}],
+    'S': ['S', {'+'}, 'S']: lambda x, y: ['({} + {})'.format(x, y)],
+    'S': ['a'],
 ]
 
-for r in pearl.parse(ambiguous, 'a+a+a+a'):
+for r, in pearl.parse(ambiguous, 'a+a+a+a'):
     print(r)
 
 
 dynamic = pearl.Grammar[
-    '_start_': ['actions'],
+    '_start_': ['action'],
 
-    'actions': [],
-    'actions': ['action', 'actions'],
+    'action': ['.'],
+    'action': [{'!'}, 'char', (lambda g, c: g.put('action', [c, 'action'])), 'action'],
 
-    'action': ['define-action'],
-
-    'define-action': ['!', {'char'}]: lambda c, *, _grammar_: (None, _grammar_.put('action', [c])),
-
-    'char': [{'a'}],
-    'char': [{'b'}],
-    'char': [{'c'}],
-    'char': [{'d'}],
-    'char': [{'e'}],
-    'char': [{'f'}],
-    'char': [{'g'}],
-    'char': [{'h'}],
-    'char': [{'i'}],
-    'char': [{'j'}],
-    'char': [{'k'}],
-    'char': [{'l'}],
-    'char': [{'m'}],
-    'char': [{'n'}],
-    'char': [{'o'}],
-    'char': [{'p'}],
-    'char': [{'q'}],
-    'char': [{'r'}],
-    'char': [{'s'}],
-    'char': [{'t'}],
-    'char': [{'u'}],
-    'char': [{'v'}],
-    'char': [{'w'}],
-    'char': [{'x'}],
-    'char': [{'y'}],
-    'char': [{'z'}],
+    'char': ['a'],
+    'char': ['b'],
+    'char': ['c'],
+    'char': ['d'],
+    'char': ['e'],
+    'char': ['f'],
+    'char': ['g'],
+    'char': ['h'],
+    'char': ['i'],
+    'char': ['j'],
+    'char': ['k'],
+    'char': ['l'],
+    'char': ['m'],
+    'char': ['n'],
+    'char': ['o'],
+    'char': ['p'],
+    'char': ['q'],
+    'char': ['r'],
+    'char': ['s'],
+    'char': ['t'],
+    'char': ['u'],
+    'char': ['v'],
+    'char': ['w'],
+    'char': ['x'],
+    'char': ['y'],
+    'char': ['z'],
 ]
 
-for r in pearl.parse(dynamic, '!aaaa!bbbbaa'):
-    print('dynamic is okay')
-    break
-else:
-    print('dynamic failed')
-
-
+for r in pearl.parse(dynamic, '!aaa!bbababa.'):
+    print(r)
 
 var_math = pearl.Grammar[
-    '_start_': [{'expr'}],
+    '_start_': ['expr'],
 
-    'expr': ['def', ';', {'expr'}],
-    'expr': [{'add/sub'}],
+    'expr': ['add/sub'],
 
-    'def': [{'id'}, '=', {'expr'}]: lambda n, v, *, _grammar_: (None, _grammar_.put('var', [n], lambda: v)),
+    'expr': ['id', {'='}, 'expr', {';'}, (lambda g, n, v: g.put('var', [{n}], lambda: [v])), 'expr']: lambda n, v, r: [r],
 
-    'id': ['chs']: lambda *, _tokens_: ''.join(_tokens_),
+    'id': ['ch+']: lambda *cs: ''.join(cs),
 
-    'chs': ['ch', 'chs'],
-    'chs': ['ch'],
+    'ch+': ['ch'],
+    'ch+': ['ch', 'ch+'],
 
     'ch': ['a'],
     'ch': ['b'],
@@ -187,23 +184,23 @@ var_math = pearl.Grammar[
     'ch': ['y'],
     'ch': ['z'],
 
-    'add/sub': [{'add/sub'}, '+', {'mul/div'}]: lambda x, y: x + y,
-    'add/sub': [{'add/sub'}, '-', {'mul/div'}]: lambda x, y: x - y,
-    'add/sub': [{'mul/div'}],
+    'add/sub': ['add/sub', {'+'}, 'mul/div']: lambda x, y: [x + y],
+    'add/sub': ['add/sub', {'-'}, 'mul/div']: lambda x, y: [x - y],
+    'add/sub': ['mul/div'],
 
-    'mul/div': [{'mul/div'}, '*', {'pref'}]: lambda x, y: x * y,
-    'mul/div': [{'mul/div'}, '/', {'pref'}]: lambda x, y: x / y,
-    'mul/div': [{'pref'}],
+    'mul/div': ['mul/div', {'*'}, 'pref']: lambda x, y: [x * y],
+    'mul/div': ['mul/div', {'/'}, 'pref']: lambda x, y: [x / y],
+    'mul/div': ['pref'],
 
-    'pref': ['+', {'prim'}]: lambda x: +x,
-    'pref': ['-', {'prim'}]: lambda x: -x,
-    'pref': [{'prim'}],
+    'pref': [{'+'}, 'prim']: lambda x: [+x],
+    'pref': [{'-'}, 'prim']: lambda x: [-x],
+    'pref': ['prim'],
 
-    'prim': ['(', {'expr'}, ')'],
-    'prim': [{'num'}],
-    'prim': [{'var'}],
+    'prim': [{'('}, 'expr', {')'}],
+    'prim': ['num'],
+    'prim': ['var'],
 
-    'num': ['sgn?', 'int', 'frac?', 'exp?']: lambda *, _tokens_: float(''.join(_tokens_)),
+    'num': ['sgn?', 'int', 'frac?', 'exp?']: lambda *cs: [float(''.join(cs))],
 
     'int': ['dig', 'int'],
     'int': ['dig'],
@@ -235,5 +232,5 @@ var_math = pearl.Grammar[
     'dig': ['9'],
 ]
 
-for r in pearl.parse(var_math, 'a=2;b=a*a;a+b+1'):
+for r in pearl.parse(var_math, 'a=2;b=(c=a+1;c*c);a+b'):
     print(r)
