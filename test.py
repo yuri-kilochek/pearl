@@ -232,5 +232,5 @@ var_math = pearl.Grammar[
     'dig': ['9'],
 ]
 
-for r, in pearl.parse(var_math, 'a=2;b=(c=a+1;c*c);a+b'):
+for r, in pearl.parse(var_math, 'a=2;a=3;b=(c=a+1;c*c);a+b'):
     print(r)

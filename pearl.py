@@ -133,7 +133,7 @@ class _Item:
 
     @property
     def __key(self):
-        return self.__rule, id(self.__parents), self.__values, self.__progress
+        return self.__grammar, self.__rule, id(self.__parents), self.__values, self.__progress
 
     def __hash__(self):
         return hash(self.__key)
