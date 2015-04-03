@@ -79,8 +79,6 @@ class Grammar(metaclass=_GrammarMeta):
             rule_sets[rule.head].add(rule)
         self.__rule_sets = {h: frozenset(rs) for h, rs in rule_sets.items()}
 
-        self.__nullables = None
-
     def __getitem__(self, head):
         assert type(head) == str and head
         return self.__rule_sets.get(head, frozenset())
@@ -97,23 +95,6 @@ class Grammar(metaclass=_GrammarMeta):
         assert type(symbol) == str and symbol
         return symbol not in self.__rule_sets
 
-    def is_nullable(self, symbol):
-        assert type(symbol) == str and symbol
-
-        if self.__nullables is None:
-            self.__nullables = {h for h, rs in self.__rule_sets.items() if any(not r.body for r in rs)}
-            new_nullable = bool(self.__nullables)
-            while new_nullable:
-                new_nullable = False
-                for head, rule_set in self.__rule_sets.items():
-                    if head in self.__nullables:
-                        continue
-                    if any(all(s in self.__nullables for s in r.body) for r in rule_set):
-                        self.__nullables.add(head)
-                        new_nullable = True
-
-        return symbol in self.__nullables
-
 
 class _Item:
     def __init__(self, grammar, rule, parents=frozenset(), values=(), tokens=()):
@@ -122,6 +103,7 @@ class _Item:
         self.__parents = parents
         self.__values = values
         self.__tokens = tokens
+        self.__output = None
 
     @property
     def __key(self):
@@ -158,10 +140,13 @@ class _Item:
         assert not self.is_complete
         return _Item(grammar, self.__rule, self.__parents, self.__values + (value,), self.__tokens + tokens)
 
-    def finalize(self):
+    @property
+    def output(self):
         assert self.is_complete
-        result, grammar = self.__rule.action(self.__values, self.__tokens, self.__grammar)
-        return result, self.__tokens, grammar
+        if self.__output is None:
+            result, grammar = self.__rule.action(self.__values, self.__tokens, self.__grammar)
+            self.__output = result, self.__tokens, grammar
+        return self.__output
 
 
 class _State:
@@ -188,9 +173,10 @@ class _State:
         else:
             required_set = self.__expecting[item.expected_symbol]
         if item in required_set:
-            return
+            return False
         required_set.add(item)
         self.__order.append(item)
+        return True
 
 
 class ParseError(Exception):
@@ -215,21 +201,25 @@ def parse(grammar, tokens, *, match=default_match, allow_partial=False):
     for token in _chain(tokens, [_END]):
         next_state = _State()
 
+        while True:
+            new_items = False
+            for item in state:
+                if item.is_complete:
+                    result, tokens, grammar = item.output
+                    for parent_item in item.parents:
+                        new_items |= state.put(parent_item.get_next(grammar, result, tokens))
+                elif not item.grammar.is_terminal(item.expected_symbol):
+                    for rule in item.grammar[item.expected_symbol]:
+                        new_items |= state.put(_Item(item.grammar, rule, state[item.expected_symbol]))
+            if not new_items:
+                break
+
         for item in state:
             if item.is_complete:
-                result, tokens, grammar = item.finalize()
-                if item.parents:
-                    for parent_item in item.parents:
-                        state.put(parent_item.get_next(grammar, result, tokens))
-                else:
-                    if allow_partial or token is _END:
-                        yield result
-            elif not item.grammar.is_terminal(item.expected_symbol):
-                if item.grammar.is_nullable(item.expected_symbol):
-                    state.put(item.get_next(item.grammar, None, ()))
-                for rule in item.grammar[item.expected_symbol]:
-                    state.put(_Item(item.grammar, rule, state[item.expected_symbol]))
-            elif token is not _END:
+                result, tokens, grammar = item.output
+                if not item.parents and (allow_partial or token is _END):
+                    yield result
+            elif item.grammar.is_terminal(item.expected_symbol) and token is not _END:
                 result = match(token, item.expected_symbol)
                 if result is not None:
                     next_state.put(item.get_next(item.grammar, result, (token,)))
