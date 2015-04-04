@@ -25,7 +25,7 @@ class Grammar(metaclass=_GrammarMeta):
 
         @property
         def __key(self):
-            return self.__nonterminal, self.__body_symbols, self.__grammar_transforms, self.__value_retainer, self.__result_builder
+            return self.__nonterminal, self.__body_symbols #, self.__grammar_transforms, self.__value_retainer, self.__result_builder
 
         def __hash__(self):
             return hash(self.__key)
@@ -105,7 +105,7 @@ class Grammar(metaclass=_GrammarMeta):
 
         rule_sets = self.__rule_sets.copy()
         rule_set = rule_sets.get(rule.nonterminal, frozenset())
-        rule_set |= {rule}
+        rule_set = frozenset({r for r in rule_set if r != rule} | {rule})
         rule_sets[rule.nonterminal] = rule_set
         return Grammar(rule_sets)
 
