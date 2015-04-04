@@ -25,7 +25,7 @@ class Grammar(metaclass=_GrammarMeta):
 
         @property
         def __key(self):
-            return self.__nonterminal, self.__body_symbols #, self.__grammar_transforms, self.__value_retainer, self.__result_builder
+            return self.__nonterminal, self.__body_symbols
 
         def __hash__(self):
             return hash(self.__key)
