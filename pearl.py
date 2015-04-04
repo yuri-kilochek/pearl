@@ -16,6 +16,14 @@ class _GrammarMeta(type):
 
 class Grammar(metaclass=_GrammarMeta):
     class Rule:
+        __slots__ = [
+            '__nonterminal',
+            '__body_symbols',
+            '__grammar_transforms',
+            '__value_retainer',
+            '__result_builder',
+        ]
+
         def __init__(self, nonterminal, body_symbols, grammar_transforms, value_retainer, result_builder):
             self.__nonterminal = nonterminal
             self.__body_symbols = body_symbols
@@ -55,13 +63,19 @@ class Grammar(metaclass=_GrammarMeta):
 
     def __init__(self, rule_sets):
         self.__rule_sets = rule_sets
+        self.__key_cache = None
+        self.__hash_cache = None
 
     @property
     def __key(self):
-        return frozenset(self.__rule_sets.values())
+        if self.__key_cache is None:
+            self.__key_cache = frozenset(self.__rule_sets.values())
+        return self.__key_cache
 
     def __hash__(self):
-        return hash(self.__key)
+        if self.__hash_cache is None:
+            self.__hash_cache = hash(self.__key)
+        return self.__hash_cache
 
     def __eq__(self, other):
         return self.__key == other.__key
@@ -117,6 +131,17 @@ _NO_RESULT = object()
 
 
 class _Item:
+    __slots__ = [
+        '__grammar',
+        '__rule',
+        '__parents',
+        '__values',
+        '__progress',
+        '__result',
+        '__key_cache',
+        '__hash_cache',
+    ]
+
     def __init__(self, grammar, rule, parents=frozenset(), values=(), progress=0):
         if progress < len(rule.grammar_transforms):
             grammar_transform = rule.grammar_transforms[progress]
@@ -130,13 +155,19 @@ class _Item:
         self.__values = values
         self.__progress = progress
         self.__result = _NO_RESULT
+        self.__key_cache = None
+        self.__hash_cache = None
 
     @property
     def __key(self):
-        return self.__grammar, self.__rule, id(self.__parents), self.__values, self.__progress
+        if self.__key_cache is None:
+            self.__key_cache = self.__grammar, self.__rule, id(self.__parents), self.__values, self.__progress
+        return self.__key_cache
 
     def __hash__(self):
-        return hash(self.__key)
+        if self.__hash_cache is None:
+            self.__hash_cache = hash(self.__key)
+        return self.__hash_cache
 
     def __eq__(self, other):
         return self.__key == other.__key
