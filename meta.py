@@ -1,9 +1,29 @@
 from collections import namedtuple as _namedtuple
-import string
+import string as _string
 
-import pearl
+import pearl as _pearl
 
 
+class _СharacterToken(_namedtuple('_СharacterToken', ['symbol', 'position'])):
+    @property
+    def values(self):
+        return [self.symbol]
+
+
+def _tokenize(text):
+    line = 1
+    column = 1
+    for character in text:
+        yield _СharacterToken(character, (line, column))
+        if character == '\n':
+            line += 1
+            column = 1
+        else:
+            column += 1
+
+Module = _namedtuple('Module', ['statements'])
+
+Import = _namedtuple('Import', ['module'])
 UnusedExpression = _namedtuple('UnusedExpression', ['expression'])
 VariableDeclaration = _namedtuple('VariableDeclaration', ['name'])
 VariableAssignment = _namedtuple('VariableAssignment', ['name', 'value'])
@@ -24,14 +44,19 @@ StringLiteral = _namedtuple('StringLiteral', ['value'])
 ClosureLiteral = _namedtuple('ClosureLiteral', ['arguments', 'body'])
 
 
-def build_grammar():
-    g = pearl.Grammar[
-        '_start_': ['statements', {'whitespace'}],
+def _build_default_grammar():
+    g = _pearl.Grammar[
+        '_start_': ['module', {'whitespace'}],
 
+        'module': ['statements']: lambda statements: [Module(statements)],
 
         'statements': []: lambda: [()],
         'statements': ['statement', 'statements']: lambda first, rest: [(first,) + rest],
 
+        'statement': ['import'],
+        'import': [{'whitespace'}, {'i'}, {'m'}, {'p'}, {'o'}, {'r'}, {'t'},
+                   'string',
+                   {'whitespace'}, {';'}]: lambda module: [Import(module)],
 
         'statement': ['unused_expression'],
         'unused_expression': ['expression',
@@ -203,63 +228,38 @@ def build_grammar():
         'identifier_tail': ['digit', 'identifier_tail'],
     ]
 
-    for c in string.ascii_letters:
+    for c in _string.ascii_letters:
         g = g.put('letter', [c])
 
-    for c in string.digits:
+    for c in _string.digits:
         g = g.put('digit', [c])
 
-    for c in string.punctuation:
+    for c in _string.punctuation:
         if c != '\'':
             g = g.put('punctuation_without_quote', [c])
     g = g.put('punctuation', ['\''])
     g = g.put('punctuation', ['punctuation_without_quote'])
 
     g = g.put('whitespace', [])
-    for c in string.whitespace:
+    for c in _string.whitespace:
         g = g.put('whitespace', [c, 'whitespace'])
 
     return g
 
-grammar = build_grammar()
-
-text = r'''
-    var clamp;
-    clamp = (a, x, b) -> {
-        return x;
-    };
-
-    clamp.__name__ = 'clamp';
-
-    var x;
-    x = foo(1);
-    if le(x, 0) {
-        while x.pop() {
-            bar(baz(x), 4);
-        }
-    } else {
-        quix(kek);
-    }
-'''
+default_grammar = _build_default_grammar()
 
 
-class СharacterToken(_namedtuple('_СharacterToken', ['symbol', 'position'])):
-    @property
-    def values(self):
-        return [self.symbol]
+def _read_characters(path):
+    with open(path) as file:
+        while True:
+            c = file.read(1)
+            if not c:
+                break
+            yield c
 
+def load(module_path, grammar=default_grammar):
+    for module, in _pearl.parse(grammar, _tokenize(_read_characters(module_path + '.meta'))):
+        yield module
 
-def tokenize(text):
-    line = 1
-    column = 1
-    for character in text:
-        yield СharacterToken(character, (line, column))
-        if character == '\n':
-            line += 1
-            column = 1
-        else:
-            column += 1
-
-
-for r, in pearl.parse(grammar, tokenize(text)):
-    print(r)
+for module in load('test'):
+    print(module)

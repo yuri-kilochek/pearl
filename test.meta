@@ -1,0 +1,18 @@
+import 'core';
+
+var clamp;
+clamp = (a, x, b) -> {
+    return x;
+};
+
+clamp.__name__ = 'clamp';
+
+var x;
+x = foo(1);
+if le(x, 0) {
+    while x.pop() {
+        bar(baz(x), 4);
+    }
+} else {
+    quix(kek);
+}
