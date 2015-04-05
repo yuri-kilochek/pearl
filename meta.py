@@ -3,74 +3,117 @@ import string
 
 import pearl
 
-
-Expression = _namedtuple('Expression', ['expression'])
+UnusedExpression = _namedtuple('UnusedExpression', ['expression'])
 VariableDeclaration = _namedtuple('VariableDeclaration', ['name'])
 VariableAssignment = _namedtuple('VariableAssignment', ['name', 'value'])
-IfThenElse = _namedtuple('IfThenElse', ['condition', 'on_true', 'on_false'])
-WhileDo = _namedtuple('WhileDo', ['condition', 'body'])
-Call = _namedtuple('Call', ['function', 'arguments'])
-VariableReference = _namedtuple('VariableReference', ['name'])
-StringLiteral = _namedtuple('StringLiteral', ['value'])
+IfElse = _namedtuple('IfElse', ['condition', 'true_clause', 'false_clause'])
+While = _namedtuple('While', ['condition', 'body'])
+Continue = _namedtuple('Continue', [])
+Break = _namedtuple('Break', [])
+Return = _namedtuple('Return', ['value'])
+Block = _namedtuple('Block', ['statements'])
+
+Invocation = _namedtuple('Invocation', ['invocable', 'arguments'])
+
+Variable = _namedtuple('Variable', ['name'])
 NumberLiteral = _namedtuple('NumberLiteral', ['value'])
+StringLiteral = _namedtuple('StringLiteral', ['value'])
+ClosureLiteral = _namedtuple('ClosureLiteral', ['arguments', 'body'])
 
 
 def build_grammar():
     g = pearl.Grammar[
         '_start_': ['statements', {'whitespace'}],
 
+
         'statements': []: lambda: [()],
         'statements': ['statement', 'statements']: lambda first, rest: [(first,) + rest],
 
-        'statement': ['expression',
-                      {'whitespace'}, {';'}]: lambda expression: [Expression(expression)],
 
-        'statement': [{'whitespace'}, {'v'}, {'a'}, {'r'},
-                      'identifier',
-                      {'whitespace'}, {';'}]: lambda name: [VariableDeclaration(name)],
+        'statement': ['unused_expression'],
+        'unused_expression': ['expression',
+                              {'whitespace'}, {';'}]: lambda expression: [UnusedExpression(expression)],
 
-        'statement': ['identifier',
-                      {'whitespace'}, {'<'}, {'-'},
-                      'expression',
-                      {'whitespace'}, {';'}]: lambda name, value: [VariableAssignment(name, value)],
+        'statement': ['variable_declaration'],
+        'variable_declaration': [{'whitespace'}, {'v'}, {'a'}, {'r'},
+                                 'identifier',
+                                 {'whitespace'}, {';'}]: lambda name: [VariableDeclaration(name)],
 
-        'statement': [{'whitespace'}, {'i'}, {'f'},
-                      'expression',
-                      {'whitespace'}, {'t'}, {'h'}, {'e'}, {'n'},
-                      'statements',
-                      {'whitespace'}, {'e'}, {'l'}, {'s'}, {'e'},
-                      'statements',
-                      {'whitespace'}, {'e'}, {'n'}, {'d'}]: lambda condition, true_clause, false_clause: [IfThenElse(condition, true_clause, false_clause)],
+        'statement': ['variable_assignment'],
+        'variable_assignment': ['identifier',
+                                {'whitespace'}, {'='},
+                                'expression',
+                                {'whitespace'}, {';'}]: lambda name, value: [VariableAssignment(name, value)],
 
-        'statement': [{'whitespace'}, {'w'}, {'h'}, {'i'}, {'l'}, {'e'},
-                      'expression',
-                      {'whitespace'}, {'d'}, {'o'},
-                      'statements',
-                      {'whitespace'}, {'e'}, {'n'}, {'d'}]: lambda condition, body: [WhileDo(condition, body)],
+        'statement': ['if_else'],
+        'if_else': [{'whitespace'}, {'i'}, {'f'},
+                    'expression',
+                    'block',
+                    {'whitespace'}, {'e'}, {'l'}, {'s'}, {'e'},
+                    'block']: lambda condition, true_clause, false_clause: [IfElse(condition, true_clause, false_clause)],
+
+        'statement': ['while'],
+        'while': [{'whitespace'}, {'w'}, {'h'}, {'i'}, {'l'}, {'e'},
+                  'expression',
+                  'block']: lambda condition, body: [While(condition, body)],
+
+        'statement': ['continue'],
+        'continue': [{'whitespace'}, {'c'}, {'o'}, {'n'}, {'t'}, {'i'}, {'n'}, {'u'}, {'e'},
+                     {'whitespace'}, {';'}]: lambda: [Continue()],
+
+        'statement': ['break'],
+        'break': [{'whitespace'}, {'b'}, {'r'}, {'e'}, {'a'}, {'k'},
+                  {'whitespace'}, {';'}]: lambda: [Break()],
+
+        'statement': ['return'],
+        'return': [{'whitespace'}, {'r'}, {'e'}, {'t'}, {'u'}, {'r'}, {'n'},
+                   'expression',
+                   {'whitespace'}, {';'}]: lambda value: [Return(value)],
+
+        'statement': ['block'],
+        'block': [{'whitespace'}, {'{'},
+                  'statements',
+                  {'whitespace'}, {'}'}]: lambda statements: [Block(statements)],
 
 
         'expression': ['postfix_expression'],
 
-
         'postfix_expression': ['primary_expression'],
 
-        'postfix_expression': ['postfix_expression',
-                               {'whitespace'}, {'('},
-                               'call_arguments',
-                               {'whitespace'}, {')'}]: lambda function, arguments: [Call(function, arguments)],
+        'postfix_expression': ['invocation'],
+        'invocation': ['postfix_expression',
+                       {'whitespace'}, {'('},
+                       'invocation_arguments',
+                       {'whitespace'}, {')'}]: lambda invocable, arguments: [Invocation(invocable, arguments)],
 
-        'call_arguments': []: lambda: [()],
-        'call_arguments': ['expression']: lambda argument: [(argument,)],
-        'call_arguments': ['expression',
-                           {'whitespace'}, {','},
-                           'call_arguments']: lambda argument, rest: [(argument,) + rest],
+        'invocation_arguments': []: lambda: [()],
+        'invocation_arguments': ['expression']: lambda argument: [(argument,)],
+        'invocation_arguments': ['expression',
+                                 {'whitespace'}, {','},
+                                 'invocation_arguments']: lambda argument, rest: [(argument,) + rest],
 
 
-        'primary_expression': ['identifier']: lambda name: [VariableReference(name)],
+        'primary_expression': ['variable'],
+        'variable': ['identifier']: lambda name: [Variable(name)],
 
-        'primary_expression': ['number_literal']: lambda value: [NumberLiteral(value)],
+        'primary_expression': ['number_literal'],
+        'number_literal': ['number']: lambda value: [NumberLiteral(value)],
 
-        'primary_expression': ['string_literal']: lambda value: [StringLiteral(value)],
+        'primary_expression': ['string_literal'],
+        'string_literal': ['string']: lambda value: [StringLiteral(value)],
+
+        'primary_expression': ['closure_literal'],
+        'closure_literal': [{'whitespace'}, {'('},
+                            'closure_literal_arguments',
+                            {'whitespace'}, {')'},
+                            {'whitespace'}, {'-'}, {'>'},
+                            'block']: lambda arguments, body: [ClosureLiteral(arguments, body)],
+
+        'closure_literal_arguments': []: lambda: [()],
+        'closure_literal_arguments': ['identifier']: lambda argument: [(argument,)],
+        'closure_literal_arguments': ['identifier',
+                                      {'whitespace'}, {','},
+                                      'closure_literal_arguments']: lambda first, rest: [(first,) + rest],
 
         'primary_expression': [{'whitespace'}, {'('},
                                'expression',
@@ -91,55 +134,57 @@ def build_grammar():
         # 'symbol': ['identifier'],
         # 'symbol': ['string_literal'],
 
-        'identifier': [{'whitespace'}, 'identifier_head', 'identifier_tail0']: lambda *cs: [''.join(cs)],
+
+        'string': [{'whitespace'}, {'\''}, 'string_items', {'\''}]: lambda *cs: [''.join(cs)],
+
+        'string_items': [],
+        'string_items': ['string_item', 'string_items'],
+
+        'string_item': ['letter'],
+        'string_item': ['digit'],
+        'string_item': ['punctuation_without_quote'],
+        'string_item': ['whitespace'],
+        'string_item': [{'\\'}, '\\'],
+        'string_item': [{'\\'}, '\''],
+        'string_item': [{'\\'}, {'t'}]: lambda: ['\t'],
+        'string_item': [{'\\'}, {'v'}]: lambda: ['\v'],
+        'string_item': [{'\\'}, {'f'}]: lambda: ['\f'],
+        'string_item': [{'\\'}, {'n'}]: lambda: ['\n'],
+        'string_item': [{'\\'}, {'r'}]: lambda: ['\r'],
+
+
+        'number': [{'whitespace'},
+                   'number_sign_opt',
+                   'number_integer',
+                   'number_fraction_opt',
+                   'number_exponent_opt']: lambda *cs: [float(''.join(cs))],
+
+        'number_sign_opt': [],
+        'number_sign_opt': ['+'],
+        'number_sign_opt': ['-'],
+
+        'number_integer': ['digit'],
+        'number_integer': ['digit', 'number_integer'],
+
+        'number_fraction_opt': [],
+        'number_fraction_opt': ['.', 'number_integer'],
+
+        'number_exponent_opt': [],
+        'number_exponent_opt': ['e', 'number_sign_opt', 'number_integer'],
+        'number_exponent_opt': ['E', 'number_sign_opt', 'number_integer'],
+
+
+        'identifier': [{'whitespace'},
+                       'identifier_head',
+                       'identifier_tail']: lambda *cs: [''.join(cs)],
 
         'identifier_head': ['_'],
         'identifier_head': ['letter'],
 
-        'identifier_tail': ['_'],
-        'identifier_tail': ['letter'],
-        'identifier_tail': ['digit'],
-
-        'identifier_tail0': [],
-        'identifier_tail0': ['identifier_tail', 'identifier_tail0'],
-
-        'string_literal': [{'whitespace'}, {'\''}, 'string_literal_item0', {'\''}]: lambda *cs: [''.join(cs)],
-
-        'string_literal_item': ['letter'],
-        'string_literal_item': ['digit'],
-        'string_literal_item': ['punctuation_without_quote'],
-        'string_literal_item': ['whitespace'],
-        'string_literal_item': [{'\\'}, '\\'],
-        'string_literal_item': [{'\\'}, '\''],
-        'string_literal_item': [{'\\'}, {'t'}]: lambda: ['\t'],
-        'string_literal_item': [{'\\'}, {'v'}]: lambda: ['\v'],
-        'string_literal_item': [{'\\'}, {'f'}]: lambda: ['\f'],
-        'string_literal_item': [{'\\'}, {'n'}]: lambda: ['\n'],
-        'string_literal_item': [{'\\'}, {'r'}]: lambda: ['\r'],
-
-        'string_literal_item0': [],
-        'string_literal_item0': ['string_literal_item', 'string_literal_item0'],
-
-
-        'number_literal': [{'whitespace'},
-                           'number_literal_sign_opt',
-                           'number_literal_integer',
-                           'number_literal_fraction_opt',
-                           'number_literal_exponent_opt']: lambda *cs: [float(''.join(cs))],
-
-        'number_literal_sign_opt': [],
-        'number_literal_sign_opt': ['+'],
-        'number_literal_sign_opt': ['-'],
-
-        'number_literal_integer': ['digit'],
-        'number_literal_integer': ['digit', 'number_literal_integer'],
-
-        'number_literal_fraction_opt': [],
-        'number_literal_fraction_opt': ['.', 'number_literal_integer'],
-
-        'number_literal_exponent_opt': [],
-        'number_literal_exponent_opt': ['e', 'number_literal_sign_opt', 'number_literal_integer'],
-        'number_literal_exponent_opt': ['E', 'number_literal_sign_opt', 'number_literal_integer'],
+        'identifier_tail': [],
+        'identifier_tail': ['_', 'identifier_tail'],
+        'identifier_tail': ['letter', 'identifier_tail'],
+        'identifier_tail': ['digit', 'identifier_tail'],
     ]
 
     for c in string.ascii_letters:
@@ -163,13 +208,20 @@ def build_grammar():
 grammar = build_grammar()
 
 text = r'''
+    var clamp;
+    clamp = (a, x, b) -> {
+        return x;
+    };
+
     var x;
-    x <- foo(1);
-    if le(x, 0) then
-        bar(x);
-    else
+    x = foo(1);
+    if le(x, 0) {
+        while x {
+            bar(baz(x), 4);
+        }
+    } else {
         quix(kek);
-    end
+    }
 '''
 
 
