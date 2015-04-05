@@ -289,7 +289,7 @@ def parse(grammar, tokens, *, allow_partial=False):
             if item.is_complete:
                 if item.parents is None:
                     if allow_partial or token is _END:
-                        yield list(item.results)
+                        yield list(item.results), item.grammar
                         result_count += 1
             elif item.grammar.is_terminal(item.expected_symbol) and token is not _END:
                 if token.symbol == item.expected_symbol:

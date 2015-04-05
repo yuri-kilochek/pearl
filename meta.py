@@ -258,8 +258,8 @@ def _read_characters(path):
             yield c
 
 def load(module_path, grammar=default_grammar):
-    for module, in _pearl.parse(grammar, _tokenize(_read_characters(module_path + '.meta'))):
-        yield module
+    for (module,), grammar in _pearl.parse(grammar, _tokenize(_read_characters(module_path + '.meta'))):
+        yield module, grammar
 
-for module in load('test'):
-    print(module)
+for module, grammar in load('test'):
+    print(module, grammar)
