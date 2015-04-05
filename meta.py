@@ -3,9 +3,11 @@ import string
 
 import pearl
 
+
 UnusedExpression = _namedtuple('UnusedExpression', ['expression'])
 VariableDeclaration = _namedtuple('VariableDeclaration', ['name'])
 VariableAssignment = _namedtuple('VariableAssignment', ['name', 'value'])
+AttributeAssignment = _namedtuple('AttributeAssignment', ['object', 'attribute_name', 'value'])
 IfElse = _namedtuple('IfElse', ['condition', 'true_clause', 'false_clause'])
 While = _namedtuple('While', ['condition', 'body'])
 Continue = _namedtuple('Continue', [])
@@ -13,6 +15,7 @@ Break = _namedtuple('Break', [])
 Return = _namedtuple('Return', ['value'])
 Block = _namedtuple('Block', ['statements'])
 
+AttributeAccess = _namedtuple('AttributeAccess', ['object', 'attribute_name'])
 Invocation = _namedtuple('Invocation', ['invocable', 'arguments'])
 
 Variable = _namedtuple('Variable', ['name'])
@@ -44,6 +47,14 @@ def build_grammar():
                                 {'whitespace'}, {'='},
                                 'expression',
                                 {'whitespace'}, {';'}]: lambda name, value: [VariableAssignment(name, value)],
+
+        'statement': ['attribute_assignment'],
+        'attribute_assignment': ['postfix_expression',
+                                 {'whitespace'}, {'.'},
+                                 'identifier',
+                                 {'whitespace'}, {'='},
+                                 'expression',
+                                 {'whitespace'}, {';'}]: lambda object, attribute_name, value: [AttributeAssignment(object, attribute_name, value)],
 
         'statement': ['if_else'],
         'if_else': [{'whitespace'}, {'i'}, {'f'},
@@ -79,6 +90,11 @@ def build_grammar():
         'expression': ['postfix_expression'],
 
         'postfix_expression': ['primary_expression'],
+
+        'postfix_expression': ['attribute_access'],
+        'attribute_access': ['postfix_expression',
+                             {'whitespace'}, {'.'},
+                             'identifier']: lambda object, attribute_name: [AttributeAccess(object, attribute_name)],
 
         'postfix_expression': ['invocation'],
         'invocation': ['postfix_expression',
@@ -213,10 +229,12 @@ text = r'''
         return x;
     };
 
+    clamp.__name__ = 'clamp';
+
     var x;
     x = foo(1);
     if le(x, 0) {
-        while x {
+        while x.pop() {
             bar(baz(x), 4);
         }
     } else {
