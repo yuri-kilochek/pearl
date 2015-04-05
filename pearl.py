@@ -193,12 +193,12 @@ class _Item:
         assert not self.is_complete
         return self.__rule.body_symbols[self.__progress]
 
-    def consume(self, new_values):
+    def consume(self, grammar, new_values):
         assert not self.is_complete
         values = self.__values
         if self.__rule.value_retainer[self.__progress]:
             values += new_values
-        return _Item(self.__grammar, self.__rule, self.__parents, values, self.__progress + 1)
+        return _Item(grammar, self.__rule, self.__parents, values, self.__progress + 1)
 
     @property
     def results(self):
@@ -268,7 +268,7 @@ def parse(grammar, tokens, *, match=default_match, allow_partial=False):
             for item in state:
                 if item.is_complete:
                     for parent in item.parents:
-                        new_items |= state.put(parent.consume(item.results))
+                        new_items |= state.put(parent.consume(item.grammar, item.results))
                 elif not item.grammar.is_terminal(item.expected_symbol):
                     for rule in item.grammar[item.expected_symbol]:
                         new_items |= state.put(_Item(item.grammar, rule, state[item.expected_symbol]))
@@ -282,7 +282,7 @@ def parse(grammar, tokens, *, match=default_match, allow_partial=False):
             elif item.grammar.is_terminal(item.expected_symbol) and token is not _END:
                 results = match(token, item.expected_symbol)
                 if results is not None:
-                    next_state.put(item.consume(tuple(results)))
+                    next_state.put(item.consume(item.grammar, tuple(results)))
 
         if not next_state and token is not _END:
             raise ParseError()
