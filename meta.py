@@ -34,8 +34,8 @@ Continue = _namedtuple('Continue', [])
 Break = _namedtuple('Break', [])
 Return = _namedtuple('Return', ['value'])
 Block = _namedtuple('Block', ['statements'])
-MacroUse = _namedtuple('MacroUse', ['nonterminal', 'body_symbols', 'values'])
-MacroDeclaration = _namedtuple('MacroDeclaration', ['nonterminal', 'body_symbols', 'transformation'])
+MacroDeclaration = _namedtuple('MacroDeclaration', ['rule', 'arguments', 'transformation'])
+MacroUse = _namedtuple('MacroUse', ['rule', 'arguments'])
 
 AttributeAccess = _namedtuple('AttributeAccess', ['object', 'attribute_name'])
 Invocation = _namedtuple('Invocation', ['invocable', 'arguments'])
@@ -118,22 +118,21 @@ def _build_default_grammar():
                               {'whitespace'}, {'('},
                               'macro_declaration_arguments',
                               {'whitespace'}, {')'},
-                              'block', (lambda g, nonterminal, arguments, transformation: g.put(nonterminal, [s for s, _ in arguments], lambda *values: [MacroUse(nonterminal, arguments, values)])),
-                              ]: lambda nonterminal, arguments, transformation: [MacroDeclaration(nonterminal, arguments, transformation)],
+                              'block', (lambda g, nonterminal, arguments, transformation: g.put(nonterminal, [{s} if n is None else s for s, n in arguments], lambda *nodes: [MacroUse((nonterminal, tuple(s for s, _ in arguments)), nodes)])),
+                              ]: lambda nonterminal, arguments, transformation: [MacroDeclaration((nonterminal, tuple(s for s, _ in arguments)), tuple(n for _, n in arguments if n is not None), transformation)],
 
         'macro_declaration_arguments': []: lambda: [()],
-        'macro_declaration_arguments': ['macro_declaration_argument']: lambda symbol: [(symbol,)],
+        'macro_declaration_arguments': ['macro_declaration_argument']: lambda symbols: [symbols],
         'macro_declaration_arguments': ['macro_declaration_argument',
                                         {'whitespace'}, {','},
-                                        'macro_declaration_arguments']: lambda first, rest: [(first,) + rest],
+                                        'macro_declaration_arguments']: lambda firsts, rest: [firsts + rest],
 
 
-        'macro_declaration_argument': ['string', (lambda g, literal: g.put('\'{}\''.format(literal), list(literal))),
-                                       ]: lambda literal: [('\'{}\''.format(literal), None)],
-        'macro_declaration_argument': ['identifier']: lambda symbol: [(symbol, None)],
+        'macro_declaration_argument': ['string']: lambda literal: [tuple((s, None) for s in literal)],
+        'macro_declaration_argument': ['identifier']: lambda symbol: [((symbol, None),)],
         'macro_declaration_argument': ['identifier',
                                        {'whitespace'}, {'/'},
-                                       'identifier']: lambda symbol, name: [(symbol, name)],
+                                       'identifier']: lambda symbol, name: [((symbol, name),)],
 
 
 
@@ -272,4 +271,4 @@ def load(module_path, grammar=default_grammar):
         yield module, grammar
 
 for module, grammar in load('test'):
-    print(module, grammar)
+    print(module)
