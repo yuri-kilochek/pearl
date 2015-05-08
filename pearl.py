@@ -109,7 +109,9 @@ class Grammar(metaclass=_GrammarMeta):
                 assert callable(x)
                 assert len(grammar_transforms) == len(body_symbols)
                 grammar_transforms.append(x)
-        assert len(grammar_transforms) == len(body_symbols)
+        if len(grammar_transforms) == len(body_symbols):
+            grammar_transforms.append(None)
+        assert len(grammar_transforms) == len(body_symbols) + 1
         body_symbols = tuple(body_symbols)
         grammar_transforms = tuple(grammar_transforms)
         value_retainer = tuple(value_retainer)
@@ -143,11 +145,10 @@ class _Item:
     ]
 
     def __init__(self, grammar, rule, start=None, parents=None, progress=0, values=()):
-        if progress < len(rule.grammar_transforms):
-            grammar_transform = rule.grammar_transforms[progress]
-            if grammar_transform:
-                grammar = grammar_transform(grammar, *values)
-                assert rule in grammar[rule.nonterminal]
+        grammar_transform = rule.grammar_transforms[progress]
+        if grammar_transform:
+            grammar = grammar_transform(grammar, *values)
+            assert rule in grammar[rule.nonterminal]
 
         self.__grammar = grammar
         self.__rule = rule
