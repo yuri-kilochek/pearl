@@ -1,5 +1,11 @@
 import 'core';
 
+macro statement(whitespace, 'if', expression/condition, block/true_clause) {
+    return 'if {} {} else {{{}}}'.format(condition, true_clause);
+}
+
+if a {}
+
 var clamp;
 clamp = (a, x, b) -> {
     return x;
@@ -12,7 +18,7 @@ x = foo(1);
 if le(x, 0) {
     loop {
         if not(x.pop()) {
-            break;
+
         } else {}
         bar(baz(x), 4);
     }

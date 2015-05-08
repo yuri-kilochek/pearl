@@ -34,11 +34,13 @@ Continue = _namedtuple('Continue', [])
 Break = _namedtuple('Break', [])
 Return = _namedtuple('Return', ['value'])
 Block = _namedtuple('Block', ['statements'])
+MacroUse = _namedtuple('MacroUse', ['nonterminal', 'body_symbols', 'values'])
+MacroDeclaration = _namedtuple('MacroDeclaration', ['nonterminal', 'body_symbols', 'transformation'])
 
 AttributeAccess = _namedtuple('AttributeAccess', ['object', 'attribute_name'])
 Invocation = _namedtuple('Invocation', ['invocable', 'arguments'])
 
-Variable = _namedtuple('Variable', ['name'])
+VariableUse = _namedtuple('VariableUse', ['name'])
 NumberLiteral = _namedtuple('NumberLiteral', ['value'])
 StringLiteral = _namedtuple('StringLiteral', ['value'])
 ClosureLiteral = _namedtuple('ClosureLiteral', ['arguments', 'body'])
@@ -112,16 +114,26 @@ def _build_default_grammar():
 
         'statement': ['macro_declaration'],
         'macro_declaration': [{'whitespace'}, {'m'}, {'a'}, {'c'}, {'r'}, {'o'},
-                              {'whitespace'}, 'identifier',
-                              {'whitespace'}, 'symbol_list', (lambda g: g.put()),
-                              {'whitespace'}, 'block']: lambda nt, bs, r, next: [],
+                              'identifier',
+                              {'whitespace'}, {'('},
+                              'macro_declaration_arguments',
+                              {'whitespace'}, {')'},
+                              'block', (lambda g, nonterminal, arguments, transformation: g.put(nonterminal, [s for s, _ in arguments], lambda *values: [MacroUse(nonterminal, arguments, values)])),
+                              ]: lambda nonterminal, arguments, transformation: [MacroDeclaration(nonterminal, arguments, transformation)],
 
-        'symbol_list': []: lambda: [()],
-        'symbol_list': [{'whitespace'}, 'symbol', {'whitespace'}, 'symbol0']: lambda first, rest: [(first,) + rest],
+        'macro_declaration_arguments': []: lambda: [()],
+        'macro_declaration_arguments': ['macro_declaration_argument']: lambda symbol: [(symbol,)],
+        'macro_declaration_arguments': ['macro_declaration_argument',
+                                        {'whitespace'}, {','},
+                                        'macro_declaration_arguments']: lambda first, rest: [(first,) + rest],
 
-        'symbol': ['identifier'],
-        'symbol': ['string_literal'],
 
+        'macro_declaration_argument': ['string', (lambda g, literal: g.put('\'{}\''.format(literal), list(literal))),
+                                       ]: lambda literal: [('\'{}\''.format(literal), None)],
+        'macro_declaration_argument': ['identifier']: lambda symbol: [(symbol, None)],
+        'macro_declaration_argument': ['identifier',
+                                       {'whitespace'}, {'/'},
+                                       'identifier']: lambda symbol, name: [(symbol, name)],
 
 
 
@@ -147,8 +159,8 @@ def _build_default_grammar():
                                  'invocation_arguments']: lambda argument, rest: [(argument,) + rest],
 
 
-        'primary_expression': ['variable'],
-        'variable': ['identifier']: lambda name: [Variable(name)],
+        'primary_expression': ['variable_use'],
+        'variable_use': ['identifier']: lambda name: [VariableUse(name)],
 
         'primary_expression': ['number_literal'],
         'number_literal': ['number']: lambda value: [NumberLiteral(value)],
