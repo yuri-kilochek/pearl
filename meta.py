@@ -29,7 +29,7 @@ VariableDeclaration = _namedtuple('VariableDeclaration', ['name'])
 VariableAssignment = _namedtuple('VariableAssignment', ['name', 'value'])
 AttributeAssignment = _namedtuple('AttributeAssignment', ['object', 'attribute_name', 'value'])
 IfElse = _namedtuple('IfElse', ['condition', 'true_clause', 'false_clause'])
-While = _namedtuple('While', ['condition', 'body'])
+Loop = _namedtuple('Loop', ['body'])
 Continue = _namedtuple('Continue', [])
 Break = _namedtuple('Break', [])
 Return = _namedtuple('Return', ['value'])
@@ -88,10 +88,9 @@ def _build_default_grammar():
                     {'whitespace'}, {'e'}, {'l'}, {'s'}, {'e'},
                     'block']: lambda condition, true_clause, false_clause: [IfElse(condition, true_clause, false_clause)],
 
-        'statement': ['while'],
-        'while': [{'whitespace'}, {'w'}, {'h'}, {'i'}, {'l'}, {'e'},
-                  'expression',
-                  'block']: lambda condition, body: [While(condition, body)],
+        'statement': ['loop'],
+        'loop': [{'whitespace'}, {'l'}, {'o'}, {'o'}, {'p'},
+                 'block']: lambda body: [Loop(body)],
 
         'statement': ['continue'],
         'continue': [{'whitespace'}, {'c'}, {'o'}, {'n'}, {'t'}, {'i'}, {'n'}, {'u'}, {'e'},
@@ -110,6 +109,23 @@ def _build_default_grammar():
         'block': [{'whitespace'}, {'{'},
                   'statements',
                   {'whitespace'}, {'}'}]: lambda statements: [Block(statements)],
+
+        'statement': ['macro_declaration'],
+        'macro_declaration': [{'whitespace'}, {'m'}, {'a'}, {'c'}, {'r'}, {'o'},
+                              {'whitespace'}, 'identifier',
+                              {'whitespace'}, 'symbol_list', (lambda g, nt, bs: g.put('macro_replacement', [nt.text], lambda *x: [x])),
+                              {'whitespace'}, {'-'}, {'>'},
+                              {'whitespace'}, 'macro_replacement',
+                              {'whitespace'}, {';'}, (lambda g, nt, bs, r: g),
+                              {'whitespace'}, 'expression']: lambda nt, bs, r, next: [MacroDeclaration(nt, bs, r, next)],
+
+        'symbol_list': []: lambda: [()],
+        'symbol_list': [{'whitespace'}, 'symbol', {'whitespace'}, 'symbol0']: lambda first, rest: [(first,) + rest],
+
+        'symbol': ['identifier'],
+        'symbol': ['string_literal'],
+
+
 
 
         'expression': ['postfix_expression'],
@@ -159,21 +175,6 @@ def _build_default_grammar():
         'primary_expression': [{'whitespace'}, {'('},
                                'expression',
                                {'whitespace'}, {')'}],
-
-
-        # 'expression': [{'whitespace'}, {'m'}, {'a'}, {'c'}, {'r'}, {'o'},
-        #                {'ws1'}, 'identifier',
-        #                {'whitespace'}, 'symbol_list', (lambda g, nt, bs: g.put('macro_replacement', [nt.text], lambda *x: [x])),
-        #                {'whitespace'}, {'-'}, {'>'},
-        #                {'whitespace'}, 'macro_replacement',
-        #                {'whitespace'}, {';'}, (lambda g, nt, bs, r: g),
-        #                {'whitespace'}, 'expression']: lambda nt, bs, r, next: [MacroDeclaration(nt, bs, r, next)],
-
-        # 'symbol_list': []: lambda: [()],
-        # 'symbol_list': [{'whitespace'}, 'symbol', {'whitespace'}, 'symbol0']: lambda first, rest: [(first,) + rest],
-        #
-        # 'symbol': ['identifier'],
-        # 'symbol': ['string_literal'],
 
 
         'string': [{'whitespace'}, {'\''}, 'string_items', {'\''}]: lambda *cs: [''.join(cs)],

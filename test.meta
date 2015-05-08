@@ -10,7 +10,10 @@ clamp.__name__ = 'clamp';
 var x;
 x = foo(1);
 if le(x, 0) {
-    while x.pop() {
+    loop {
+        if not(x.pop()) {
+            break;
+        } else {}
         bar(baz(x), 4);
     }
 } else {
