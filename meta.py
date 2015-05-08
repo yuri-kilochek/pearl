@@ -113,11 +113,8 @@ def _build_default_grammar():
         'statement': ['macro_declaration'],
         'macro_declaration': [{'whitespace'}, {'m'}, {'a'}, {'c'}, {'r'}, {'o'},
                               {'whitespace'}, 'identifier',
-                              {'whitespace'}, 'symbol_list', (lambda g, nt, bs: g.put('macro_replacement', [nt.text], lambda *x: [x])),
-                              {'whitespace'}, {'-'}, {'>'},
-                              {'whitespace'}, 'macro_replacement',
-                              {'whitespace'}, {';'}, (lambda g, nt, bs, r: g),
-                              {'whitespace'}, 'expression']: lambda nt, bs, r, next: [MacroDeclaration(nt, bs, r, next)],
+                              {'whitespace'}, 'symbol_list', (lambda g: g.put()),
+                              {'whitespace'}, 'block']: lambda nt, bs, r, next: [],
 
         'symbol_list': []: lambda: [()],
         'symbol_list': [{'whitespace'}, 'symbol', {'whitespace'}, 'symbol0']: lambda first, rest: [(first,) + rest],

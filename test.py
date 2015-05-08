@@ -1,4 +1,24 @@
+from collections import namedtuple as _namedtuple
+
 import pearl
+
+
+class СharacterToken(_namedtuple('_СharacterToken', ['symbol', 'position'])):
+    @property
+    def values(self):
+        return [self.symbol]
+
+
+def tokenize(text):
+    line = 1
+    column = 1
+    for character in text:
+        yield СharacterToken(character, (line, column))
+        if character == '\n':
+            line += 1
+            column = 1
+        else:
+            column += 1
 
 
 def flatten_symbols(*items):
@@ -13,6 +33,7 @@ def flatten_symbols(*items):
         else:
             i += 1
     return items
+
 
 def simple_math(**c):
     return pearl.Grammar[
@@ -90,10 +111,10 @@ evaluate = simple_math(
 
 expression = '3*(1/2)'
 
-for r, in pearl.parse(sexpress, expression):
+for (r,), _ in pearl.parse(sexpress, tokenize(expression)):
     print(r)  # (* 3 (/ 1 2))
 
-for r, in pearl.parse(evaluate, expression):
+for (r,), _ in pearl.parse(evaluate, tokenize(expression)):
     print(r)  # 1.5
 
 
@@ -104,7 +125,7 @@ ambiguous = pearl.Grammar[
     'S': ['a'],
 ]
 
-for r, in pearl.parse(ambiguous, 'a+a+a+a'):
+for (r,), _ in pearl.parse(ambiguous, tokenize('a+a+a+a')):
     print(r)
 
 
@@ -142,7 +163,7 @@ dynamic = pearl.Grammar[
     'char': ['z'],
 ]
 
-for r in pearl.parse(dynamic, '!aaa!bbababa.'):
+for r, _ in pearl.parse(dynamic, tokenize('!aaa!bbababa.')):
     print(r)
 
 var_math = pearl.Grammar[
@@ -232,5 +253,5 @@ var_math = pearl.Grammar[
     'dig': ['9'],
 ]
 
-for r, in pearl.parse(var_math, 'a=2;a=3;b=(c=a+1;c*c);a+b+c'):
+for (r,), _ in pearl.parse(var_math, tokenize('a=2;a=3;b=(c=a+1;c*c);a+b+c')):
     print(r)
