@@ -1,13 +1,15 @@
 import 'core';
 
-macro statement(whitespace, 'if', expression/condition, block/true_clause) {
-    return 'if {} {} else {{{}}}'.format(condition, true_clause);
-}
+macro statements(
+    whitespace, 'var',
+    @identifier,
+    whitespace, '=',
+    @expression,
+    whitespace, ';',
+    @statements
+) -> 0;
 
-if a {}
-
-var clamp;
-clamp = (a, x, b) -> {
+var clamp = func(a, x, b) {
     return x;
 };
 

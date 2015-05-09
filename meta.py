@@ -21,21 +21,20 @@ def _tokenize(text):
         else:
             column += 1
 
-Module = _namedtuple('Module', ['statements'])
-
-Import = _namedtuple('Import', ['module'])
-UnusedExpression = _namedtuple('UnusedExpression', ['expression'])
-VariableDeclaration = _namedtuple('VariableDeclaration', ['name'])
-VariableAssignment = _namedtuple('VariableAssignment', ['name', 'value'])
-AttributeAssignment = _namedtuple('AttributeAssignment', ['object', 'attribute_name', 'value'])
-IfElse = _namedtuple('IfElse', ['condition', 'true_clause', 'false_clause'])
-Loop = _namedtuple('Loop', ['body'])
+Nothing = _namedtuple('Nothing', [])
+Import = _namedtuple('Import', ['name', 'next'])
+UnusedExpression = _namedtuple('UnusedExpression', ['expression', 'next'])
+VariableDeclaration = _namedtuple('VariableDeclaration', ['name', 'next'])
+VariableAssignment = _namedtuple('VariableAssignment', ['name', 'value', 'next'])
+AttributeAssignment = _namedtuple('AttributeAssignment', ['object', 'attribute_name', 'value', 'next'])
+IfElse = _namedtuple('IfElse', ['condition', 'true_clause', 'false_clause', 'next'])
+Loop = _namedtuple('Loop', ['body', 'next'])
 Continue = _namedtuple('Continue', [])
 Break = _namedtuple('Break', [])
 Return = _namedtuple('Return', ['value'])
-Block = _namedtuple('Block', ['statements'])
-MacroDeclaration = _namedtuple('MacroDeclaration', ['rule', 'arguments', 'transformation'])
-MacroUse = _namedtuple('MacroUse', ['rule', 'arguments'])
+Block = _namedtuple('Block', ['body', 'next'])
+MacroDeclaration = _namedtuple('MacroDeclaration', ['rule', 'transformer', 'next'])
+MacroUse = _namedtuple('MacroUse', ['rule', 'nodes'])
 
 AttributeAccess = _namedtuple('AttributeAccess', ['object', 'attribute_name'])
 Invocation = _namedtuple('Invocation', ['invocable', 'arguments'])
@@ -43,83 +42,92 @@ Invocation = _namedtuple('Invocation', ['invocable', 'arguments'])
 VariableUse = _namedtuple('VariableUse', ['name'])
 NumberLiteral = _namedtuple('NumberLiteral', ['value'])
 StringLiteral = _namedtuple('StringLiteral', ['value'])
-ClosureLiteral = _namedtuple('ClosureLiteral', ['arguments', 'body'])
+FunctionLiteral = _namedtuple('FunctionLiteral', ['arguments', 'body'])
 
 
 def _build_default_grammar():
     g = _pearl.Grammar[
-        '_start_': ['module', {'whitespace'}],
+        '_start_': ['statements', {'whitespace'}],
 
-        'module': ['statements']: lambda statements: [Module(statements)],
+        # nothing
+        'statements': []: lambda: [Nothing()],
 
-        'statements': []: lambda: [()],
-        'statements': ['statement', 'statements']: lambda first, rest: [(first,) + rest],
+        # import
+        'statements': [{'whitespace'}, {'i'}, {'m'}, {'p'}, {'o'}, {'r'}, {'t'},
+                       'string',
+                       {'whitespace'}, {';'},
+                       'statements']: lambda name, next: [Import(name, next)],
 
-        'statement': ['import'],
-        'import': [{'whitespace'}, {'i'}, {'m'}, {'p'}, {'o'}, {'r'}, {'t'},
-                   'string',
-                   {'whitespace'}, {';'}]: lambda module: [Import(module)],
+        # variable declaration
+        'statements': [{'whitespace'}, {'v'}, {'a'}, {'r'},
+                       'identifier',
+                       {'whitespace'}, {';'},
+                       'statements']: lambda name, next: [VariableDeclaration(name, next)],
 
-        'statement': ['unused_expression'],
-        'unused_expression': ['expression',
-                              {'whitespace'}, {';'}]: lambda expression: [UnusedExpression(expression)],
+        # variable assignment
+        'statements': ['identifier',
+                       {'whitespace'}, {'='},
+                       'expression',
+                       {'whitespace'}, {';'},
+                       'statements']: lambda name, value, next: [VariableAssignment(name, value, next)],
 
-        'statement': ['variable_declaration'],
-        'variable_declaration': [{'whitespace'}, {'v'}, {'a'}, {'r'},
-                                 'identifier',
-                                 {'whitespace'}, {';'}]: lambda name: [VariableDeclaration(name)],
+        # attribute assignment
+        'statements': ['postfix_expression',
+                       {'whitespace'}, {'.'},
+                       'identifier',
+                       {'whitespace'}, {'='},
+                       'expression',
+                       {'whitespace'}, {';'},
+                       'statements']: lambda object, attribute_name, value, next: [AttributeAssignment(object, attribute_name, value, next)],
 
-        'statement': ['variable_assignment'],
-        'variable_assignment': ['identifier',
-                                {'whitespace'}, {'='},
-                                'expression',
-                                {'whitespace'}, {';'}]: lambda name, value: [VariableAssignment(name, value)],
+        # if else
+        'statements': [{'whitespace'}, {'i'}, {'f'},
+                       'expression',
+                       {'whitespace'}, {'{'},
+                       'statements',
+                       {'whitespace'}, {'}'},
+                       {'whitespace'}, {'e'}, {'l'}, {'s'}, {'e'},
+                       {'whitespace'}, {'{'},
+                       'statements',
+                       {'whitespace'}, {'}'},
+                       'statements']: lambda condition, true_clause, false_clause, next: [IfElse(condition, true_clause, false_clause, next)],
 
-        'statement': ['attribute_assignment'],
-        'attribute_assignment': ['postfix_expression',
-                                 {'whitespace'}, {'.'},
-                                 'identifier',
-                                 {'whitespace'}, {'='},
-                                 'expression',
-                                 {'whitespace'}, {';'}]: lambda object, attribute_name, value: [AttributeAssignment(object, attribute_name, value)],
+        # loop
+        'statements': [{'whitespace'}, {'l'}, {'o'}, {'o'}, {'p'},
+                       {'whitespace'}, {'{'},
+                       'statements',
+                       {'whitespace'}, {'}'},
+                       'statements']: lambda body, next: [Loop(body, next)],
 
-        'statement': ['if_else'],
-        'if_else': [{'whitespace'}, {'i'}, {'f'},
-                    'expression',
-                    'block',
-                    {'whitespace'}, {'e'}, {'l'}, {'s'}, {'e'},
-                    'block']: lambda condition, true_clause, false_clause: [IfElse(condition, true_clause, false_clause)],
+        # continue
+        'statements': [{'whitespace'}, {'c'}, {'o'}, {'n'}, {'t'}, {'i'}, {'n'}, {'u'}, {'e'},
+                       {'whitespace'}, {';'}]: lambda: [Continue()],
 
-        'statement': ['loop'],
-        'loop': [{'whitespace'}, {'l'}, {'o'}, {'o'}, {'p'},
-                 'block']: lambda body: [Loop(body)],
+        # break
+        'statements': [{'whitespace'}, {'b'}, {'r'}, {'e'}, {'a'}, {'k'},
+                       {'whitespace'}, {';'}]: lambda: [Break()],
 
-        'statement': ['continue'],
-        'continue': [{'whitespace'}, {'c'}, {'o'}, {'n'}, {'t'}, {'i'}, {'n'}, {'u'}, {'e'},
-                     {'whitespace'}, {';'}]: lambda: [Continue()],
+        # return
+        'statements': [{'whitespace'}, {'r'}, {'e'}, {'t'}, {'u'}, {'r'}, {'n'},
+                       'expression',
+                       {'whitespace'}, {';'}]: lambda value: [Return(value)],
 
-        'statement': ['break'],
-        'break': [{'whitespace'}, {'b'}, {'r'}, {'e'}, {'a'}, {'k'},
-                  {'whitespace'}, {';'}]: lambda: [Break()],
+        # block
+        'statements': [{'whitespace'}, {'{'},
+                       'statements',
+                       {'whitespace'}, {'}'},
+                       'statements']: lambda body, next: [Block(body, next)],
 
-        'statement': ['return'],
-        'return': [{'whitespace'}, {'r'}, {'e'}, {'t'}, {'u'}, {'r'}, {'n'},
-                   'expression',
-                   {'whitespace'}, {';'}]: lambda value: [Return(value)],
-
-        'statement': ['block'],
-        'block': [{'whitespace'}, {'{'},
-                  'statements',
-                  {'whitespace'}, {'}'}]: lambda statements: [Block(statements)],
-
-        'statement': ['macro_declaration'],
-        'macro_declaration': [{'whitespace'}, {'m'}, {'a'}, {'c'}, {'r'}, {'o'},
-                              'identifier',
-                              {'whitespace'}, {'('},
-                              'macro_declaration_arguments',
-                              {'whitespace'}, {')'},
-                              'block', (lambda g, nonterminal, arguments, transformation: g.put(nonterminal, [{s} if n is None else s for s, n in arguments], lambda *nodes: [MacroUse((nonterminal, tuple(s for s, _ in arguments)), nodes)])),
-                              ]: lambda nonterminal, arguments, transformation: [MacroDeclaration((nonterminal, tuple(s for s, _ in arguments)), tuple(n for _, n in arguments if n is not None), transformation)],
+        # macro declaration
+        'statements': [{'whitespace'}, {'m'}, {'a'}, {'c'}, {'r'}, {'o'},
+                       'identifier',
+                       {'whitespace'}, {'('},
+                       'macro_declaration_arguments',
+                       {'whitespace'}, {')'},
+                       {'whitespace'}, {'-'}, {'>'},
+                       'expression',
+                       {'whitespace'}, {';'}, (lambda g, nonterminal, arguments, _: g.put(nonterminal, [s if u else {s} for s, u in arguments], lambda *nodes: [MacroUse((nonterminal, tuple(s for s, _ in arguments)), nodes)])),
+                       'statements']: lambda nonterminal, arguments, transformer, next: [MacroDeclaration((nonterminal, tuple(s for s, _ in arguments)), transformer, next)],
 
         'macro_declaration_arguments': []: lambda: [()],
         'macro_declaration_arguments': ['macro_declaration_argument']: lambda symbols: [symbols],
@@ -128,28 +136,31 @@ def _build_default_grammar():
                                         'macro_declaration_arguments']: lambda firsts, rest: [firsts + rest],
 
 
-        'macro_declaration_argument': ['string']: lambda literal: [tuple((s, None) for s in literal)],
-        'macro_declaration_argument': ['identifier']: lambda symbol: [((symbol, None),)],
-        'macro_declaration_argument': ['identifier',
-                                       {'whitespace'}, {'/'},
-                                       'identifier']: lambda symbol, name: [((symbol, name),)],
+        'macro_declaration_argument': ['string']: lambda literal: [tuple((s, False) for s in literal)],
+        'macro_declaration_argument': ['identifier']: lambda symbol: [((symbol, False),)],
+        'macro_declaration_argument': [{'whitespace'}, {'@'},
+                                       'identifier']: lambda symbol: [((symbol, True),)],
 
+        # unused expression
+        'statements': ['expression',
+                       {'whitespace'}, {';'},
+                       'statements']: lambda expression, next: [UnusedExpression(expression, next)],
 
 
         'expression': ['postfix_expression'],
 
         'postfix_expression': ['primary_expression'],
 
-        'postfix_expression': ['attribute_access'],
-        'attribute_access': ['postfix_expression',
-                             {'whitespace'}, {'.'},
-                             'identifier']: lambda object, attribute_name: [AttributeAccess(object, attribute_name)],
+        # attribute access
+        'postfix_expression': ['postfix_expression',
+                               {'whitespace'}, {'.'},
+                               'identifier']: lambda object, attribute_name: [AttributeAccess(object, attribute_name)],
 
-        'postfix_expression': ['invocation'],
-        'invocation': ['postfix_expression',
-                       {'whitespace'}, {'('},
-                       'invocation_arguments',
-                       {'whitespace'}, {')'}]: lambda invocable, arguments: [Invocation(invocable, arguments)],
+        # invocation
+        'postfix_expression': ['postfix_expression',
+                               {'whitespace'}, {'('},
+                               'invocation_arguments',
+                               {'whitespace'}, {')'}]: lambda invocable, arguments: [Invocation(invocable, arguments)],
 
         'invocation_arguments': []: lambda: [()],
         'invocation_arguments': ['expression']: lambda argument: [(argument,)],
@@ -157,29 +168,31 @@ def _build_default_grammar():
                                  {'whitespace'}, {','},
                                  'invocation_arguments']: lambda argument, rest: [(argument,) + rest],
 
+        # variable use
+        'primary_expression': ['identifier']: lambda name: [VariableUse(name)],
 
-        'primary_expression': ['variable_use'],
-        'variable_use': ['identifier']: lambda name: [VariableUse(name)],
+        # number literal
+        'primary_expression': ['number']: lambda value: [NumberLiteral(value)],
 
-        'primary_expression': ['number_literal'],
-        'number_literal': ['number']: lambda value: [NumberLiteral(value)],
+        # string literal
+        'primary_expression': ['string']: lambda value: [StringLiteral(value)],
 
-        'primary_expression': ['string_literal'],
-        'string_literal': ['string']: lambda value: [StringLiteral(value)],
+        # function literal
+        'primary_expression': [{'whitespace'}, {'f'}, {'u'}, {'n'}, {'c'},
+                               {'whitespace'}, {'('},
+                               'function_literal_arguments',
+                               {'whitespace'}, {')'},
+                               {'whitespace'}, {'{'},
+                               'statements',
+                               {'whitespace'}, {'}'}]: lambda arguments, body: [FunctionLiteral(arguments, body)],
 
-        'primary_expression': ['closure_literal'],
-        'closure_literal': [{'whitespace'}, {'('},
-                            'closure_literal_arguments',
-                            {'whitespace'}, {')'},
-                            {'whitespace'}, {'-'}, {'>'},
-                            'block']: lambda arguments, body: [ClosureLiteral(arguments, body)],
+        'function_literal_arguments': []: lambda: [()],
+        'function_literal_arguments': ['identifier']: lambda argument: [(argument,)],
+        'function_literal_arguments': ['identifier',
+                                       {'whitespace'}, {','},
+                                       'function_literal_arguments']: lambda first, rest: [(first,) + rest],
 
-        'closure_literal_arguments': []: lambda: [()],
-        'closure_literal_arguments': ['identifier']: lambda argument: [(argument,)],
-        'closure_literal_arguments': ['identifier',
-                                      {'whitespace'}, {','},
-                                      'closure_literal_arguments']: lambda first, rest: [(first,) + rest],
-
+        # parenthesized expression
         'primary_expression': [{'whitespace'}, {'('},
                                'expression',
                                {'whitespace'}, {')'}],
@@ -235,6 +248,18 @@ def _build_default_grammar():
         'identifier_tail': ['_', 'identifier_tail'],
         'identifier_tail': ['letter', 'identifier_tail'],
         'identifier_tail': ['digit', 'identifier_tail'],
+
+
+        # comment
+        'whitespace': ['#', 'comment_chars', '\n', 'whitespace'],
+
+        'comment_chars': [],
+        'comment_chars': ['comment_char', 'comment_chars'],
+
+        'comment_char': ['letter'],
+        'comment_char': ['digit'],
+        'comment_char': ['punctuation'],
+        'comment_char': ['whitespace_without_newline'],
     ]
 
     for c in _string.ascii_letters:
@@ -246,12 +271,16 @@ def _build_default_grammar():
     for c in _string.punctuation:
         if c != '\'':
             g = g.put('punctuation_without_quote', [c])
-    g = g.put('punctuation', ['\''])
     g = g.put('punctuation', ['punctuation_without_quote'])
+    g = g.put('punctuation', ['\''])
 
-    g = g.put('whitespace', [])
+    g = g.put('whitespace_without_newline', [])
     for c in _string.whitespace:
-        g = g.put('whitespace', [c, 'whitespace'])
+        if c != '\n':
+            g = g.put('whitespace_without_newline', [c, 'whitespace_without_newline'])
+    g = g.put('whitespace', ['whitespace_without_newline'])
+    g = g.put('whitespace', [])
+    g = g.put('whitespace', ['\n', 'whitespace'])
 
     return g
 
