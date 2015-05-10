@@ -8,7 +8,7 @@ class _GrammarMeta(type):
         if rules.__class__ != tuple:
             rules = rules,
 
-        grammar = cls({})
+        grammar = cls()
         for rule in rules:
             assert rule.__class__ == slice
             grammar = grammar.put(rule.start, rule.stop, rule.step)
@@ -62,7 +62,9 @@ class Grammar(metaclass=_GrammarMeta):
         def result_builder(self):
             return self.__result_builder
 
-    def __init__(self, rule_sets):
+    def __init__(self, rule_sets=None):
+        if rule_sets is None:
+            rule_sets = {}
         self.__rule_sets = rule_sets
         self.__key_cache = None
         self.__hash_cache = None
@@ -203,14 +205,14 @@ class _Item:
         assert not self.is_complete
         return self.__rule.body_symbols[self.__progress]
 
-    def consume(self, grammar, new_values):
+    def consume(self, new_values):
         assert not self.is_complete
 
         values = self.__values
         if self.__rule.value_retainer[self.__progress]:
             values += new_values
 
-        return _Item(grammar, self.__rule, self.__start, self.__parents, self.__progress + 1, values)
+        return _Item(self.grammar, self.__rule, self.__start, self.__parents, self.__progress + 1, values)
 
     @property
     def results(self):
@@ -277,7 +279,7 @@ def parse(grammar, tokens, *, allow_partial=False):
                 if item.is_complete:
                     if item.parents is not None:
                         for parent in item.parents:
-                            new_items |= state.put(parent.consume(item.grammar, item.results))
+                            new_items |= state.put(parent.consume(item.results))
                 elif not item.grammar.is_terminal(item.expected_symbol):
                     for rule in item.grammar[item.expected_symbol]:
                         new_items |= state.put(_Item(item.grammar, rule, position, state[item.expected_symbol]))
@@ -294,7 +296,7 @@ def parse(grammar, tokens, *, allow_partial=False):
                         result_count += 1
             elif item.grammar.is_terminal(item.expected_symbol) and token is not _END:
                 if token.symbol == item.expected_symbol:
-                    next_state.put(item.consume(item.grammar, tuple(token.values)))
+                    next_state.put(item.consume(tuple(token.values)))
 
         if not next_state:
             if result_count == 0:
