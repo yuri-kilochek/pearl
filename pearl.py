@@ -128,6 +128,17 @@ class Grammar(metaclass=_GrammarMeta):
         rule_sets[rule.nonterminal] = rule_set
         return Grammar(rule_sets)
 
+    def drop(self, nonterminal, body_symbols=None):
+        rule_sets = self.__rule_sets.copy()
+        if body_symbols is None:
+            rule_sets.pop(nonterminal, None)
+        else:
+            body_symbols = tuple(body_symbols)
+            rule_set = rule_sets.get(nonterminal, frozenset())
+            rule_set = frozenset(r for r in rule_set if r.body_symbols != body_symbols)
+            rule_sets[nonterminal] = rule_set
+        return Grammar(rule_sets)
+
     def is_terminal(self, symbol):
         assert type(symbol) == str and symbol
         return symbol not in self.__rule_sets
