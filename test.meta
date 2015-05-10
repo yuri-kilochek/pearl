@@ -1,29 +1,32 @@
-import 'core';
+print('Hello {}'.format('world!'));
 
-macro statements(
-    whitespace, 'var',
-    @identifier,
-    whitespace, '=',
-    @expression,
-    whitespace, ';',
-    @statements
-) -> 0;
 
-var clamp = func(a, x, b) {
-    return x;
-};
-
-clamp.__name__ = 'clamp';
-
-var x;
-x = foo(1);
-if le(x, 0) {
-    loop {
-        if not(x.pop()) {
-
-        } else {}
-        bar(baz(x), 4);
-    }
-} else {
-    quix(kek);
-}
+# import 'core';
+#
+# macro statements(
+#     whitespace, 'var',
+#     @identifier,
+#     whitespace, '=',
+#     @expression,
+#     whitespace, ';',
+#     @statements
+# ) -> 0;
+#
+# var clamp = func(a, x, b) {
+#     return x;
+# };
+#
+# clamp.__name__ = 'clamp';
+#
+# var x;
+# x = foo(1);
+# if le(x, 0) {
+#     loop {
+#         if not(x.pop()) {
+#
+#         } else {}
+#         bar(baz(x), 4);
+#     }
+# } else {
+#     quix(kek);
+# }

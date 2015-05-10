@@ -4,59 +4,195 @@ import string as _string
 import pearl as _pearl
 
 
-class _СharacterToken(_namedtuple('_СharacterToken', ['symbol', 'position'])):
-    @property
-    def values(self):
-        return [self.symbol]
+_UNASSIGNED_VARIABLE = object()
 
 
-def _tokenize(text):
-    line = 1
-    column = 1
-    for character in text:
-        yield _СharacterToken(character, (line, column))
-        if character == '\n':
-            line += 1
-            column = 1
+class Context:
+    def __init__(self, parent=None):
+        self.__parent = parent
+        self.__variables = {}
+
+    def declare(self, name):
+        self.__variables[name] = _UNASSIGNED_VARIABLE
+
+    def assign(self, name, value):
+        if name in self.__variables:
+            self.__variables[name] = value
+        elif self.__parent is not None:
+            self.__parent.assign(name, value)
         else:
-            column += 1
+            raise Exception('Assignment to undeclared variable \'{}\''.format(name))
 
-Nothing = _namedtuple('Nothing', [])
-Import = _namedtuple('Import', ['name', 'next'])
-UnusedExpression = _namedtuple('UnusedExpression', ['expression', 'next'])
-VariableDeclaration = _namedtuple('VariableDeclaration', ['name', 'next'])
-VariableAssignment = _namedtuple('VariableAssignment', ['name', 'value', 'next'])
-AttributeAssignment = _namedtuple('AttributeAssignment', ['object', 'attribute_name', 'value', 'next'])
-IfElse = _namedtuple('IfElse', ['condition', 'true_clause', 'false_clause', 'next'])
-Loop = _namedtuple('Loop', ['body', 'next'])
-Continue = _namedtuple('Continue', [])
-Break = _namedtuple('Break', [])
-Return = _namedtuple('Return', ['value'])
-Block = _namedtuple('Block', ['body', 'next'])
-MacroDeclaration = _namedtuple('MacroDeclaration', ['rule', 'transformer', 'next'])
-MacroUse = _namedtuple('MacroUse', ['rule', 'nodes'])
+    def declare_and_assign(self, name, value):
+        self.declare(name)
+        self.assign(name, value)
 
-AttributeAccess = _namedtuple('AttributeAccess', ['object', 'attribute_name'])
-Invocation = _namedtuple('Invocation', ['invocable', 'arguments'])
+    def use(self, name):
+        if name in self.__variables:
+            value = self.__variables[name]
+            if value is _UNASSIGNED_VARIABLE:
+                raise Exception('Use of unassigned variable \'{}\''.format(name))
+            return value
+        elif self.__parent is not None:
+            return self.__parent.use(name)
+        else:
+            raise Exception('Use of undeclared variable \'{}\''.format(name))
 
-VariableUse = _namedtuple('VariableUse', ['name'])
-NumberLiteral = _namedtuple('NumberLiteral', ['value'])
-StringLiteral = _namedtuple('StringLiteral', ['value'])
-FunctionLiteral = _namedtuple('FunctionLiteral', ['arguments', 'body'])
+
+class Module(_namedtuple('Module', ['body'])):
+    def execute(self, context=None):
+        if context is None:
+            context = Context()
+
+        context.declare_and_assign('print', print)
+
+        self.body.execute(context)
+
+
+class Nothing(_namedtuple('Nothing', [])):
+    def execute(self, context):
+        pass
+
+# Import = _namedtuple('Import', ['name', 'next'])
+
+
+class UnusedExpression(_namedtuple('UnusedExpression', ['expression', 'next'])):
+    def execute(self, context):
+        self.expression.execute(context)
+        self.next.execute(context)
+
+
+class VariableDeclaration(_namedtuple('VariableDeclaration', ['name', 'next'])):
+    def execute(self, context):
+        context.declare(self.name)
+        self.next.execute(context)
+
+
+class VariableAssignment(_namedtuple('VariableAssignment', ['name', 'value', 'next'])):
+    def execute(self, context):
+        context.assign(self.name, self.value.execute(context))
+        self.next.execute(context)
+
+
+class AttributeAssignment(_namedtuple('AttributeAssignment', ['object', 'attribute_name', 'value', 'next'])):
+    def execute(self, context):
+        setattr(self.object.execute(context), self.attribute_name, self.value.execute(context))
+        self.next.execute(context)
+
+
+class IfElse(_namedtuple('IfElse', ['condition', 'true_clause', 'false_clause', 'next'])):
+    def execute(self, stack):
+        if self.condition.execute(stack):
+            self.true_clause.execute(stack)
+        else:
+            self.false_clause.execute(stack)
+
+
+class Loop(_namedtuple('Loop', ['body', 'next'])):
+    def execute(self, context):
+        while True:
+            try:
+                self.body.execute(context)
+            except Continue.Interrupt:
+                continue
+            except Break.Interrupt:
+                break
+
+
+class Continue(_namedtuple('Continue', [])):
+    class Interrupt(Exception):
+        pass
+
+    def execute(self, context):
+        raise Continue.Interrupt()
+
+
+class Break(_namedtuple('Break', [])):
+    class Interrupt(Exception):
+        pass
+
+    def execute(self, context):
+        raise Break.Interrupt()
+
+
+class Return(_namedtuple('Return', ['value'])):
+    class Interrupt(Exception):
+        def __init__(self, value):
+            self.__value = value
+
+        @property
+        def value(self):
+            return self.__value
+
+    def execute(self, context):
+        value = self.value.execute(context)
+        raise Return.Interrupt(value)
+
+
+class Block(_namedtuple('Block', ['body', 'next'])):
+    def execute(self, context):
+        self.body.execute(Context(context))
+        self.next.execute(context)
+
+# MacroDeclaration = _namedtuple('MacroDeclaration', ['rule', 'transformer', 'next'])
+# MacroUse = _namedtuple('MacroUse', ['rule', 'nodes'])
+
+
+class AttributeAccess(_namedtuple('AttributeAccess', ['object', 'attribute_name'])):
+    def execute(self, context):
+        object = self.object.execute(context)
+        return getattr(object, self.attribute_name)
+
+
+class Invocation(_namedtuple('Invocation', ['invocable', 'arguments'])):
+    def execute(self, context):
+        arguments = [a.execute(context) for a in self.arguments]
+        invocable = self.invocable.execute(context)
+        return invocable(*arguments)
+
+
+class VariableUse(_namedtuple('VariableUse', ['name'])):
+    def execute(self, context):
+        return context.use(self.name)
+
+
+class NumberLiteral(_namedtuple('NumberLiteral', ['value'])):
+    def execute(self, context):
+        return self.value
+
+
+class StringLiteral(_namedtuple('StringLiteral', ['value'])):
+    def execute(self, context):
+        return self.value
+
+
+class FunctionLiteral(_namedtuple('FunctionLiteral', ['arguments', 'body'])):
+    def execute(self, context):
+        def value(*arguments):
+            local_context = Context(context)
+            for argument_name, argument_value in zip(self.arguments, arguments):
+                local_context.declare_and_assign(argument_name, argument_value)
+            try:
+                self.body.execute(local_context)
+            except Return.Interrupt as i:
+                return i.value
+        return value
 
 
 def _build_default_grammar():
     g = _pearl.Grammar[
-        '_start_': ['statements', {'whitespace'}],
+        '_start_': ['module', {'whitespace'}],
+
+        'module': ['statements']: lambda body: [Module(body)],
 
         # nothing
         'statements': []: lambda: [Nothing()],
 
-        # import
-        'statements': [{'whitespace'}, {'i'}, {'m'}, {'p'}, {'o'}, {'r'}, {'t'},
-                       'string',
-                       {'whitespace'}, {';'},
-                       'statements']: lambda name, next: [Import(name, next)],
+        # # import
+        # 'statements': [{'whitespace'}, {'i'}, {'m'}, {'p'}, {'o'}, {'r'}, {'t'},
+        #                'string',
+        #                {'whitespace'}, {';'},
+        #                'statements']: lambda name, next: [Import(name, next)],
 
         # variable declaration
         'statements': [{'whitespace'}, {'v'}, {'a'}, {'r'},
@@ -118,28 +254,28 @@ def _build_default_grammar():
                        {'whitespace'}, {'}'},
                        'statements']: lambda body, next: [Block(body, next)],
 
-        # macro declaration
-        'statements': [{'whitespace'}, {'m'}, {'a'}, {'c'}, {'r'}, {'o'},
-                       'identifier',
-                       {'whitespace'}, {'('},
-                       'macro_declaration_arguments',
-                       {'whitespace'}, {')'},
-                       {'whitespace'}, {'-'}, {'>'},
-                       'expression',
-                       {'whitespace'}, {';'}, (lambda g, nonterminal, arguments, _: g.put(nonterminal, [s if u else {s} for s, u in arguments], lambda *nodes: [MacroUse((nonterminal, tuple(s for s, _ in arguments)), nodes)])),
-                       'statements']: lambda nonterminal, arguments, transformer, next: [MacroDeclaration((nonterminal, tuple(s for s, _ in arguments)), transformer, next)],
-
-        'macro_declaration_arguments': []: lambda: [()],
-        'macro_declaration_arguments': ['macro_declaration_argument']: lambda symbols: [symbols],
-        'macro_declaration_arguments': ['macro_declaration_argument',
-                                        {'whitespace'}, {','},
-                                        'macro_declaration_arguments']: lambda firsts, rest: [firsts + rest],
-
-
-        'macro_declaration_argument': ['string']: lambda literal: [tuple((s, False) for s in literal)],
-        'macro_declaration_argument': ['identifier']: lambda symbol: [((symbol, False),)],
-        'macro_declaration_argument': [{'whitespace'}, {'@'},
-                                       'identifier']: lambda symbol: [((symbol, True),)],
+        # # macro declaration
+        # 'statements': [{'whitespace'}, {'m'}, {'a'}, {'c'}, {'r'}, {'o'},
+        #                'identifier',
+        #                {'whitespace'}, {'('},
+        #                'macro_declaration_arguments',
+        #                {'whitespace'}, {')'},
+        #                {'whitespace'}, {'-'}, {'>'},
+        #                'expression',
+        #                {'whitespace'}, {';'}, (lambda g, nonterminal, arguments, _: g.put(nonterminal, [s if u else {s} for s, u in arguments], lambda *nodes: [MacroUse((nonterminal, tuple(s for s, _ in arguments)), nodes)])),
+        #                'statements']: lambda nonterminal, arguments, transformer, next: [MacroDeclaration((nonterminal, tuple(s for s, _ in arguments)), transformer, next)],
+        #
+        # 'macro_declaration_arguments': []: lambda: [()],
+        # 'macro_declaration_arguments': ['macro_declaration_argument']: lambda symbols: [symbols],
+        # 'macro_declaration_arguments': ['macro_declaration_argument',
+        #                                 {'whitespace'}, {','},
+        #                                 'macro_declaration_arguments']: lambda firsts, rest: [firsts + rest],
+        #
+        #
+        # 'macro_declaration_argument': ['string']: lambda literal: [tuple((s, False) for s in literal)],
+        # 'macro_declaration_argument': ['identifier']: lambda symbol: [((symbol, False),)],
+        # 'macro_declaration_argument': [{'whitespace'}, {'@'},
+        #                                'identifier']: lambda symbol: [((symbol, True),)],
 
         # unused expression
         'statements': ['expression',
@@ -287,6 +423,24 @@ def _build_default_grammar():
 default_grammar = _build_default_grammar()
 
 
+class _CharacterToken(_namedtuple('_CharacterToken', ['symbol', 'position'])):
+    @property
+    def values(self):
+        return [self.symbol]
+
+
+def _tokenize(text):
+    line = 1
+    column = 1
+    for character in text:
+        yield _CharacterToken(character, (line, column))
+        if character == '\n':
+            line += 1
+            column = 1
+        else:
+            column += 1
+
+
 def _read_characters(path):
     with open(path) as file:
         while True:
@@ -295,9 +449,11 @@ def _read_characters(path):
                 break
             yield c
 
+
 def load(module_path, grammar=default_grammar):
     for (module,), grammar in _pearl.parse(grammar, _tokenize(_read_characters(module_path + '.meta'))):
         yield module, grammar
 
 for module, grammar in load('test'):
     print(module)
+    module.execute()
