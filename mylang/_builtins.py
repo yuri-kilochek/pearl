@@ -1,0 +1,3 @@
+builtins = {
+    'print': print,
+}
