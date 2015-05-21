@@ -270,15 +270,19 @@ class _State:
 class ParseError(Exception):
     pass
 
+
+class AmbiguousParse(ParseError):
+    pass
+
 _END = object()
 
 
-def parse(grammar, tokens, *, allow_partial=False):
-    result_count = 0
+def parse(grammar, tokens, *, start='_start_', allow_partial=False, allow_ambiguous=False, unpack_results=True):
+    results = set()
 
     state = _State()
 
-    for rule in grammar['_start_']:
+    for rule in grammar[start]:
         state.put(_Item(grammar, rule, _END))
 
     for token in _chain(tokens, _repeat(_END)):
@@ -303,18 +307,31 @@ def parse(grammar, tokens, *, allow_partial=False):
             if item.is_complete:
                 if item.parents is None:
                     if allow_partial or token is _END:
-                        yield list(item.results), item.grammar
-                        result_count += 1
+                        results.add((item.results, item.grammar))
             elif item.grammar.is_terminal(item.expected_symbol) and token is not _END:
                 if token.symbol == item.expected_symbol:
                     next_state.put(item.consume(tuple(token.values)))
 
+        if len(results) > 1 and not allow_ambiguous:
+            raise AmbiguousParse()
+
         if not next_state:
-            if result_count == 0:
+            if not results:
                 raise ParseError(_build_error_report(state, token))
             break
 
         state = next_state
+
+    if unpack_results:
+        unpacked_results = set()
+        for values, grammar in results:
+            unpacked_results.add(values + (grammar,))
+        results = unpacked_results
+
+    if not allow_ambiguous:
+        return results.pop()
+
+    return results
 
 
 def _build_error_report(state, token):

@@ -1,4 +1,5 @@
 import mylang
 
-module, _ = mylang.load('test')
-mylang.execute(module)
+module, grammar = mylang.load('test')
+
+mylang.execute(module, grammar, print=print)

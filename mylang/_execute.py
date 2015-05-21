@@ -1,169 +1,224 @@
 from functools import singledispatch as _singledispatch
 
+import pearl as _pearl
+from ._tokenize import tokenize as _tokenize
 from . import ast as _ast
-from ._builtins import builtins as _builtins
 
 
-def execute(module, **context):
+def execute(module, grammar, **variables):
     assert module.__class__ == _ast.Module
 
-    variables = _builtins.copy()
-    variables.update(context)
-
     context = _Context()
+
     for name, value in variables.items():
         context.declare_and_assign(name, value)
 
-    _execute(module, context)
+    @_singledispatch
+    def execute(node, context):
+        raise NotImplementedError()
+
+    @execute.register(_ast.Module)
+    def _(node, context):
+        execute(node.body, context)
+
+    @execute.register(_ast.Nothing)
+    def _(node, context):
+        pass
+
+    @execute.register(_ast.UnusedExpression)
+    def _(node, context):
+        execute(node.expression, context)
+        execute(node.next, context)
+
+    @execute.register(_ast.VariableDeclaration)
+    def _(node, context):
+        context.declare(node.name)
+        execute(node.next, context)
+
+    @execute.register(_ast.MacroDeclaration)
+    def _(node, context):
+        rule = node.rule
+        transform = execute(node.transform, context)
+
+        @_singledispatch
+        def render_macro(node):
+            return node
+
+        @render_macro.register(_ast.UnusedExpression)
+        def _(node):
+            return _ast.UnusedExpression(render_macro(node.expression), render_macro(node.next))
+
+        @render_macro.register(_ast.VariableDeclaration)
+        def _(node):
+            return _ast.VariableDeclaration(node.name, render_macro(node.next))
+
+        @render_macro.register(_ast.MacroDeclaration)
+        def _(node):
+            return _ast.MacroDeclaration(node.rule, render_macro(node.transform), render_macro(node.next))
+
+        @render_macro.register(_ast.Block)
+        def _(node):
+            return _ast.Block(render_macro(node.body), render_macro(node.next))
+
+        @render_macro.register(_ast.IfElse)
+        def _(node):
+            return _ast.IfElse(render_macro(node.condition), render_macro(node.true_clause), render_macro(node.false_clause), render_macro(node.next))
+
+        @render_macro.register(_ast.Forever)
+        def _(node):
+            return _ast.Forever(render_macro(node.body), render_macro(node.next))
+
+        @render_macro.register(_ast.Return)
+        def _(node):
+            return _ast.Return(render_macro(node.value))
+
+        @render_macro.register(_ast.VariableAssignment)
+        def _(node):
+            return _ast.VariableAssignment(render_macro(node.value), render_macro(node.next))
+
+        @render_macro.register(_ast.AttributeAssignment)
+        def _(node):
+            return _ast.AttributeAssignment(render_macro(node.object), render_macro(node.value), node.attribute_name, render_macro(node.next))
+
+        @render_macro.register(_ast.Import)
+        def _(node):
+            return _ast.Import(node.name, render_macro(node.next))
+
+        @render_macro.register(_ast.FunctionLiteral)
+        def _(node):
+            return _ast.FunctionLiteral(node.arguments, render_macro(node.body))
+
+        @render_macro.register(_ast.AttributeAccess)
+        def _(node):
+            return _ast.AttributeAccess(render_macro(node.object), node.attribute_name)
+
+        @render_macro.register(_ast.Invocation)
+        def _(node):
+            return _ast.Invocation(render_macro(node.invocable), tuple(map(render_macro, node.arguments)))
+
+        @render_macro.register(_ast.MacroUse)
+        def _(node):
+            if node.rule != rule:
+                return _ast.MacroUse(node.rule, tuple(map(render_macro, node.nodes)))
+
+            nont = node.rule[0]
+            nontws = nont + '-with-whitespace-at-end'
+
+            text = transform(*node.nodes)
+            node_ast, _ = _pearl.parse(grammar.put(nontws, [nont, {'whitespace'}]), _tokenize(text), start=nontws)
+
+            return node_ast
+
+        execute(render_macro(node.next), context)
+
+    @execute.register(_ast.Block)
+    def _(node, context):
+        local_context = _Context(context)
+        execute(node.body, local_context)
+        execute(node.next, context)
+
+    @execute.register(_ast.IfElse)
+    def _(node, context):
+        if execute(node.condition, context):
+            local_context = _Context(context)
+            execute(node.true_clause, local_context)
+        else:
+            local_context = _Context(context)
+            execute(node.false_clause, local_context)
+        execute(node.next, context)
+
+    @execute.register(_ast.Forever)
+    def _(node, context):
+        while True:
+            try:
+                local_context = _Context(context)
+                execute(node.body, local_context)
+            except _Continue:
+                continue
+            except _Break:
+                break
+        execute(node.next, context)
+
+    @execute.register(_ast.Continue)
+    def _(node, context):
+        raise _Continue()
+
+    @execute.register(_ast.Break)
+    def _(node, context):
+        raise _Break()
+
+    @execute.register(_ast.Return)
+    def _(node, context):
+        value = execute(node.value, context)
+        raise _Return(value)
+
+    @execute.register(_ast.VariableAssignment)
+    def _(node, context):
+        value = execute(node.value, context)
+        context.assign(node.name, value)
+        execute(node.next, context)
+
+    @execute.register(_ast.AttributeAssignment)
+    def _(node, context):
+        value = execute(node.value, context)
+        object = execute(node.object, context)
+        setattr(object, node.attribute_name, value)
+        execute(node.next, context)
+
+    @execute.register(_ast.Import)
+    def _(node, context):
+        raise NotImplementedError()
+
+    @execute.register(_ast.VariableUse)
+    def _(node, context):
+        value = context.use(node.name)
+        return value
+
+    @execute.register(_ast.NumberLiteral)
+    def _(node, context):
+        return node.value
+
+    @execute.register(_ast.StringLiteral)
+    def _(node, context):
+        return node.value
+
+    @execute.register(_ast.FunctionLiteral)
+    def _(node, context):
+        def value(*arguments):
+            local_context = _Context(context)
+            for argument_name, argument_value in zip(node.arguments, arguments):
+                local_context.declare_and_assign(argument_name, argument_value)
+            try:
+                execute(node.body, local_context)
+            except _Return as j:
+                return j.value
+        return value
+
+    @execute.register(_ast.AttributeAccess)
+    def _(node, context):
+        object = execute(node.object, context)
+        value = getattr(object, node.attribute_name)
+        return value
+
+    @execute.register(_ast.Invocation)
+    def _(node, context):
+        arguments = [execute(a, context) for a in node.arguments]
+        invocable = execute(node.invocable, context)
+        value = invocable(*arguments)
+        return value
+
+    @execute.register(_ast.ParenthesizedExpression)
+    def _(node, context):
+        value = execute(node.expression, context)
+        return value
+
+    @execute.register(_ast.MacroUse)
+    def _(node, context):
+        raise NotImplementedError()
+
+    execute(module, context)
 
     return context.variables
-
-
-@_singledispatch
-def _execute(node, context):
-    raise NotImplementedError()
-
-
-@_execute.register(_ast.Module)
-def _(node, context):
-    _execute(node.body, context)
-
-
-@_execute.register(_ast.Nothing)
-def _(node, context):
-    pass
-
-
-@_execute.register(_ast.UnusedExpression)
-def _(node, context):
-    _execute(node.expression, context)
-    _execute(node.next, context)
-
-
-@_execute.register(_ast.VariableDeclaration)
-def _(node, context):
-    context.declare(node.name)
-    _execute(node.next, context)
-
-
-@_execute.register(_ast.MacroDeclaration)
-def _(node, context):
-    raise NotImplementedError()
-
-
-@_execute.register(_ast.Block)
-def _(node, context):
-    local_context = _Context(context)
-    _execute(node.body, local_context)
-    _execute(node.next, context)
-
-
-@_execute.register(_ast.IfElse)
-def _(node, context):
-    if _execute(node.condition, context):
-        local_context = _Context(context)
-        _execute(node.true_clause, local_context)
-    else:
-        local_context = _Context(context)
-        _execute(node.false_clause, local_context)
-    _execute(node.next, context)
-
-@_execute.register(_ast.Forever)
-def _(node, context):
-    while True:
-        try:
-            local_context = _Context(context)
-            _execute(node.body, local_context)
-        except _Continue:
-            continue
-        except _Break:
-            break
-    _execute(node.next, context)
-
-
-@_execute.register(_ast.Continue)
-def _(node, context):
-    raise _Continue()
-
-
-@_execute.register(_ast.Break)
-def _(node, context):
-    raise _Break()
-
-
-@_execute.register(_ast.Return)
-def _(node, context):
-    value = _execute(node.value, context)
-    raise _Return(value)
-
-
-@_execute.register(_ast.VariableAssignment)
-def _(node, context):
-    value = _execute(node.value, context)
-    context.assign(node.name, value)
-    _execute(node.next, context)
-
-
-@_execute.register(_ast.AttributeAssignment)
-def _(node, context):
-    value = _execute(node.value, context)
-    object = _execute(node.object, context)
-    setattr(object, node.attribute_name, value)
-    _execute(node.next, context)
-
-
-@_execute.register(_ast.Import)
-def _(node, context):
-    raise NotImplementedError()
-
-
-@_execute.register(_ast.VariableUse)
-def _(node, context):
-    value = context.use(node.name)
-    return value
-
-
-@_execute.register(_ast.NumberLiteral)
-def _(node, context):
-    return node.value
-
-
-@_execute.register(_ast.StringLiteral)
-def _(node, context):
-    return node.value
-
-
-@_execute.register(_ast.FunctionLiteral)
-def _(node, context):
-    def value(*arguments):
-        local_context = _Context(context)
-        for argument_name, argument_value in zip(node.arguments, arguments):
-            local_context.declare_and_assign(argument_name, argument_value)
-        try:
-            _execute(node.body, local_context)
-        except _Return as j:
-            return j.value
-    return value
-
-
-@_execute.register(_ast.AttributeAccess)
-def _(node, context):
-    object = _execute(node.object, context)
-    value = getattr(object, node.attribute_name)
-    return value
-
-
-@_execute.register(_ast.Invocation)
-def _(node, context):
-    arguments = [_execute(a, context) for a in node.arguments]
-    invocable = _execute(node.invocable, context)
-    value = invocable(*arguments)
-    return value
-
-
-@_execute.register(_ast.MacroUse)
-def _(node, context):
-    raise NotImplementedError()
 
 
 class _Continue(Exception):
