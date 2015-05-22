@@ -3,19 +3,7 @@ from itertools import chain as _chain
 from itertools import repeat as _repeat
 
 
-class _GrammarMeta(type):
-    def __getitem__(cls, rules):
-        if rules.__class__ != tuple:
-            rules = rules,
-
-        grammar = cls()
-        for rule in rules:
-            assert rule.__class__ == slice
-            grammar = grammar.put(rule.start, rule.stop, rule.step)
-        return grammar
-
-
-class Grammar(metaclass=_GrammarMeta):
+class Grammar:
     class Rule:
         __slots__ = [
             '__nonterminal',
