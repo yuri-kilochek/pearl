@@ -1,3 +1,0 @@
-builtins = {
-    'print': print,
-}

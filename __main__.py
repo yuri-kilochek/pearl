@@ -1,5 +1,5 @@
 import mylang
 
-module, grammar = mylang.load('test')
-
-mylang.execute(module, grammar, print=print)
+module = mylang.load('test')
+print(repr(module))
+#mylang.execute(module, print=print)
