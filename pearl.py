@@ -1,179 +1,174 @@
+from collections import namedtuple as _namedtuple
 from collections import defaultdict as _defaultdict
 from itertools import chain as _chain
 from itertools import repeat as _repeat
+from bisect import bisect as _bisect
 
 
 class Grammar:
-    class Rule:
-        __slots__ = [
-            '__nonterminal',
-            '__body_symbols',
-            '__grammar_transforms',
-            '__value_retainer',
-            '__result_builder',
-        ]
-
-        def __init__(self, nonterminal, body_symbols, grammar_transforms, value_retainer, result_builder):
-            self.__nonterminal = nonterminal
-            self.__body_symbols = body_symbols
-            self.__grammar_transforms = grammar_transforms
-            self.__value_retainer = value_retainer
-            self.__result_builder = result_builder
-
+    class Rule(_namedtuple('Rule', ['head', 'body', 'grammar_transforms', 'argument_selectors', 'build_result'])):
         @property
         def __key(self):
-            return self.__nonterminal, self.__body_symbols
+            return self.head, self.body
 
         def __hash__(self):
             return hash(self.__key)
 
         def __eq__(self, other):
-            return self.__key == other.__key
+            return self is other or self.__key == other.__key
 
-        @property
-        def nonterminal(self):
-            return self.__nonterminal
-
-        @property
-        def body_symbols(self):
-            return self.__body_symbols
-
-        @property
-        def grammar_transforms(self):
-            return self.__grammar_transforms
-
-        @property
-        def value_retainer(self):
-            return self.__value_retainer
-
-        @property
-        def result_builder(self):
-            return self.__result_builder
-
-    def __init__(self, rule_sets=None):
-        if rule_sets is None:
-            rule_sets = {}
-        self.__rule_sets = rule_sets
-        self.__key_cache = None
-        self.__hash_cache = None
+    def __init__(self, *, _rule_sets={}):
+        self.__rule_sets = _rule_sets
+        self.__cached_key = None
+        self.__cached_hash = None
 
     @property
     def __key(self):
-        if self.__key_cache is None:
-            self.__key_cache = frozenset(self.__rule_sets.values())
-        return self.__key_cache
+        if self.__cached_key is None:
+            self.__cached_key = frozenset(self.__rule_sets.values())
+        return self.__cached_key
 
     def __hash__(self):
-        if self.__hash_cache is None:
-            self.__hash_cache = hash(self.__key)
-        return self.__hash_cache
+        if self.__cached_hash is None:
+            self.__cached_hash = hash(self.__key)
+        return self.__cached_hash
 
     def __eq__(self, other):
-        return self.__key == other.__key
+        return self is other or self.__key == other.__key
 
-    def __getitem__(self, head_symbol):
-        assert type(head_symbol) == str and head_symbol
-        return self.__rule_sets.get(head_symbol, frozenset())
+    def __getitem__(self, head):
+        assert head.__class__ == str and len(head) > 1
+        return self.__rule_sets.get(head, frozenset())
 
-    def put(self, nonterminal, body_symbols_and_grammar_transforms, result_builder=None):
-        assert nonterminal.__class__ == str and nonterminal
+    def put(self, head, body_and_grammar_transforms, build_result=None):
+        assert head.__class__ == str and len(head) > 1
 
-        assert body_symbols_and_grammar_transforms.__class__ == list
-        body_symbols = []
-        grammar_transforms = []
-        value_retainer = []
-        for x in body_symbols_and_grammar_transforms:
+        body = []
+        grammar_transforms = [[]]
+        argument_selectors = []
+        for x in body_and_grammar_transforms:
             if x.__class__ in (set, str):
                 if x.__class__ == set:
                     assert len(x) == 1
-                    x = x.pop()
+                    x = next(iter(x))
                     assert x.__class__ == str
-                    value_retainer.append(False)
+                    argument_selectors.append(True)
                 else:
-                    value_retainer.append(True)
+                    argument_selectors.append(False)
                 assert x
-                body_symbols.append(x)
-                if len(grammar_transforms) < len(body_symbols):
-                    grammar_transforms.append(None)
+                body.append(x)
+                grammar_transforms.append([])
             else:
                 assert callable(x)
-                assert len(grammar_transforms) == len(body_symbols)
-                grammar_transforms.append(x)
-        if len(grammar_transforms) == len(body_symbols):
-            grammar_transforms.append(None)
-        assert len(grammar_transforms) == len(body_symbols) + 1
-        body_symbols = tuple(body_symbols)
-        grammar_transforms = tuple(grammar_transforms)
-        value_retainer = tuple(value_retainer)
+                grammar_transforms[-1].append(x)
 
-        assert result_builder is None or callable(result_builder)
+        assert build_result is None or callable(build_result)
 
-        rule = Grammar.Rule(nonterminal, body_symbols, grammar_transforms, value_retainer, result_builder)
+        rule = Grammar.Rule(head, tuple(body), tuple(map(tuple, grammar_transforms)), tuple(argument_selectors), build_result)
 
         rule_sets = self.__rule_sets.copy()
-        rule_set = rule_sets.get(rule.nonterminal, frozenset())
+        rule_set = rule_sets.get(rule.head, frozenset())
         rule_set = frozenset({r for r in rule_set if r != rule} | {rule})
-        rule_sets[rule.nonterminal] = rule_set
-        return Grammar(rule_sets)
+        rule_sets[rule.head] = rule_set
+        return Grammar(_rule_sets=rule_sets)
 
-    def drop(self, nonterminal, body_symbols=None):
+    def drop(self, head, body=None):
         rule_sets = self.__rule_sets.copy()
-        if body_symbols is None:
-            rule_sets.pop(nonterminal, None)
+        if body is None:
+            rule_sets.pop(head, None)
         else:
-            body_symbols = tuple(body_symbols)
-            rule_set = rule_sets.get(nonterminal, frozenset())
-            rule_set = frozenset(r for r in rule_set if r.body_symbols != body_symbols)
-            rule_sets[nonterminal] = rule_set
-        return Grammar(rule_sets)
+            body = tuple(body)
+            rule_set = rule_sets.get(head, frozenset())
+            rule_set = frozenset(r for r in rule_set if r.body != body)
+            rule_sets[head] = rule_set
+        return Grammar(_rule_sets=rule_sets)
 
     def is_terminal(self, symbol):
-        assert type(symbol) == str and symbol
+        assert symbol.__class__ == str and symbol
         return symbol not in self.__rule_sets
+
+
+class Text(str):
+    class Position(int):
+        def __new__(cls, position, text):
+            return int.__new__(cls, position)
+
+        def __init__(self, position, text):
+            self.__text = text
+            self.__line = None
+            self.__column = None
+
+        @property
+        def text(self):
+            return self.__text
+
+        @property
+        def line(self):
+            if self.__line is None:
+                self.__line = _bisect(self.__text._line_starts, self)
+            return self.__line
+
+        @property
+        def column(self):
+            if self.__column is None:
+                self.__column = self - self.__text._line_starts[self.__line - 1]
+            return self.__column
+
+    def __new__(cls, text):
+        return str.__new__(cls, text)
+
+    def __init__(self, text):
+        self._line_starts = [0]
+        for i, character in enumerate(self):
+            if character == '\n':
+                self._line_starts.append(i + 1)
 
 
 class _Item:
     __slots__ = [
+        '__start',
+        '__parent_items',
         '__grammar',
         '__rule',
-        '__start',
-        '__parents',
-        '__progress',
-        '__values',
-        '__results',
-        '__key_cache',
-        '__hash_cache',
+        '__child_results',
+        '__cached_key',
+        '__cached_hash',
     ]
 
-    def __init__(self, grammar, rule, start=None, parents=None, progress=0, values=()):
-        grammar_transform = rule.grammar_transforms[progress]
-        if grammar_transform:
-            grammar = grammar_transform(grammar, *values)
-            assert rule in grammar[rule.nonterminal]
+    def __init__(self, start, parent_items, grammar, rule, child_results):
+        for transform_grammar in rule.grammar_transforms[len(child_results)]:
+            selected_arguments = tuple(a for a, s in zip(child_results, rule.argument_selectors) if s)
+            grammar = transform_grammar(grammar, *selected_arguments)
 
+        self.__start = start
+        self.__parent_items = parent_items
         self.__grammar = grammar
         self.__rule = rule
-        self.__start = start
-        self.__parents = parents
-        self.__progress = progress
-        self.__values = values
-        self.__results = None
-        self.__key_cache = None
-        self.__hash_cache = None
+        self.__child_results = child_results
+        self.__cached_key = None
+        self.__cached_hash = None
 
     @property
     def __key(self):
-        if self.__key_cache is None:
-            self.__key_cache = self.__grammar, self.__rule, id(self.__parents), self.__progress, self.__values
-        return self.__key_cache
+        if self.__cached_key is None:
+            self.__cached_key = id(self.__parent_items), self.__grammar, self.__rule, self.__child_results
+        return self.__cached_key
 
     def __hash__(self):
-        if self.__hash_cache is None:
-            self.__hash_cache = hash(self.__key)
-        return self.__hash_cache
+        if self.__cached_hash is None:
+            self.__cached_hash = hash(self.__key)
+        return self.__cached_hash
 
     def __eq__(self, other):
-        return self.__key == other.__key
+        return self is other or self.__key == other.__key
+
+    @property
+    def start(self):
+        return self.__start
+
+    @property
+    def parent_items(self):
+        return self.__parent_items
 
     @property
     def grammar(self):
@@ -183,46 +178,33 @@ class _Item:
     def rule(self):
         return self.__rule
 
-    @property
-    def start(self):
-        return self.__start
-
-    @property
-    def parents(self):
-        return self.__parents
+    def get_result(self, text, stop):
+        assert self.is_complete
+        selected_arguments = tuple(a for a, s in zip(self.__child_results, self.__rule.argument_selectors) if s)
+        if self.__rule.build_result:
+            return self.__rule.build_result(*selected_arguments)
+        if len(selected_arguments) == 0:
+            return text[self.__start:stop]
+        if len(selected_arguments) == 1:
+            return selected_arguments[0]
+        return selected_arguments
 
     @property
     def progress(self):
-        return self.__progress
+        return len(self.__child_results)
 
     @property
     def is_complete(self):
-        return self.__progress == len(self.__rule.body_symbols)
+        return self.progress == len(self.__rule.body)
 
     @property
     def expected_symbol(self):
         assert not self.is_complete
-        return self.__rule.body_symbols[self.__progress]
+        return self.__rule.body[self.progress]
 
-    def consume(self, new_values):
+    def consume(self, next_child_result):
         assert not self.is_complete
-
-        values = self.__values
-        if self.__rule.value_retainer[self.__progress]:
-            values += new_values
-
-        return _Item(self.grammar, self.__rule, self.__start, self.__parents, self.__progress + 1, values)
-
-    @property
-    def results(self):
-        assert self.is_complete
-        if self.__results is None:
-            result_builder = self.__rule.result_builder
-            if result_builder:
-                self.__results = tuple(result_builder(*self.__values))
-            else:
-                self.__results = self.__values
-        return self.__results
+        return _Item(self.__start, self.__parent_items, self.__grammar, self.rule, self.__child_results + (next_child_result,))
 
 
 class _State:
@@ -265,27 +247,31 @@ class AmbiguousParse(ParseError):
 _END = object()
 
 
-def parse(grammar, tokens, *, start='_start_', allow_partial=False, allow_ambiguous=False, unpack_results=True):
-    results = set()
+def parse(grammar, text, *, start='__start__', allow_partial=False, allow_ambiguous=True):
+    assert grammar.__class__ == Grammar
+    assert text.__class__ == Text
+
+    results = []
 
     state = _State()
 
+    position = Text.Position(0, text)
     for rule in grammar[start]:
-        state.put(_Item(grammar, rule, _END))
+        state.put(_Item(position, None, grammar, rule, ()))
 
-    for token in _chain(tokens, _repeat(_END)):
-        position = _END if token is _END else token.position
-
+    for position, character in enumerate(_chain(text, _repeat(None))):
+        position = Text.Position(position, text)
         while True:
             new_items = False
             for item in state:
                 if item.is_complete:
-                    if item.parents is not None:
-                        for parent in item.parents:
-                            new_items |= state.put(parent.consume(item.results))
+                    if item.parent_items is not None:
+                        item_result = item.get_result(text, position)
+                        for parent_item in item.parent_items:
+                            new_items |= state.put(parent_item.consume(item_result))
                 elif not item.grammar.is_terminal(item.expected_symbol):
                     for rule in item.grammar[item.expected_symbol]:
-                        new_items |= state.put(_Item(item.grammar, rule, position, state[item.expected_symbol]))
+                        new_items |= state.put(_Item(position, state[item.expected_symbol], item.grammar, rule, ()))
             if not new_items:
                 break
 
@@ -293,42 +279,39 @@ def parse(grammar, tokens, *, start='_start_', allow_partial=False, allow_ambigu
 
         for item in state:
             if item.is_complete:
-                if item.parents is None:
-                    if allow_partial or token is _END:
-                        results.add((item.results, item.grammar))
-            elif item.grammar.is_terminal(item.expected_symbol) and token is not _END:
-                if token.symbol == item.expected_symbol:
-                    next_state.put(item.consume(tuple(token.values)))
+                if item.parent_items is None:
+                    if allow_partial or character is None:
+                        item_result = item.get_result(text, position)
+                        results.append(item_result)
+            elif item.grammar.is_terminal(item.expected_symbol) and character is not None:
+                if character == item.expected_symbol:
+                    next_state.put(item.consume(character))
 
         if len(results) > 1 and not allow_ambiguous:
             raise AmbiguousParse()
 
         if not next_state:
             if not results:
-                raise ParseError(_build_error_report(state, token))
+                raise ParseError(_build_error_report(state, position, character))
             break
 
         state = next_state
 
-    if unpack_results:
-        unpacked_results = set()
-        for values, grammar in results:
-            unpacked_results.add(values + (grammar,))
-        results = unpacked_results
-
     if not allow_ambiguous:
-        return results.pop()
+        return results[0]
 
     return results
 
 
-def _build_error_report(state, token):
+def _build_error_report(state, position, character):
     reports = []
     for item in state:
         if not item.is_complete:
-            reports.append('{} in {} starting at {}'.format(repr(item.expected_symbol), repr(item.rule.nonterminal), item.start))
-    if token is _END:
-        return 'Got unexpected end of input. Expected:\n\t{}'.format('\n\t'.join(reports))
+            p = item.start
+            reports.append('{} in {} starting at {}'.format(repr(item.expected_symbol), repr(item.rule.head), (p.line, p.column)))
+    p = position
+    if character is None:
+        return 'Got unexpected end of input at {}. Expected:\n\t{}'.format((p.line, p.column), '\n\t'.join(reports))
     else:
-        return 'Got {} at {}. Expected:\n\t{}'.format(repr(token.symbol), token.position, ' or \n\t'.join(reports))
+        return 'Got {} at {}. Expected:\n\t{}'.format(repr(character), (p.line, p.column), ' or \n\t'.join(reports))
 
