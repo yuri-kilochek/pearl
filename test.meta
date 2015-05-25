@@ -1,11 +1,26 @@
+macro statements:
+    whitespace, 'var',
+    $identifier,
+    whitespace, '=',
+    $expression,
+    whitespace, ';',
+    $statements
+-> (context, name, value, next) => {
+    context.declare_variable(name);
+    context.assign_variable(name, value.execute(context));
+    next.execute(context);
+};
 
-# macro expression:
-#     $expression,
-#     whitespace, '+',
-#     $expression,
-# -> (a, b) => {
-#     print(a, b);
-# };
-#
+macro expression:
+    $expression,
+    whitespace, '+',
+    $expression
+-> (context, a, b) => {
+    a = a.execute(context);
+    b = b.execute(context);
+    return a.__add__(b);
+};
 
-print(2.__add__(3), 'foo');
+var a = 2;
+
+print(a + 3);

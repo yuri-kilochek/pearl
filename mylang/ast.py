@@ -6,7 +6,8 @@ class Module(_namedtuple('Module', ['body'])):
         context = _Context()
 
         for name, value in variables.items():
-            context.declare_and_assign(name, value)
+            context.declare_variable(name)
+            context.assign_variable(name, value)
 
         self.body.execute(context)
 
@@ -26,24 +27,27 @@ class UnusedExpression(_namedtuple('UnusedExpression', ['expression', 'next'])):
 
 class VariableDeclaration(_namedtuple('VariableDeclaration', ['name', 'next'])):
     def execute(self, context):
-        context.declare(self.name)
+        context.declare_variable(self.name)
         self.next.execute(context)
 
 
-class MacroDeclarationTerminalParameter(_namedtuple('MacroDeclarationTerminalParameter', ['symbols'])): pass
+class MacroParameterTerminal(_namedtuple('MacroParameterTerminal', ['symbols'])): pass
 
 
-class MacroDeclarationNonterminalParameter(_namedtuple('MacroDeclarationNonterminalParameter', ['used', 'symbol'])): pass
+class MacroParameterNonterminal(_namedtuple('MacroParameterNonterminal', ['used', 'symbol'])): pass
 
 
-class MacroDeclaration(_namedtuple('MacroDeclaration', ['nonterminal', 'parameters', 'transform', 'next'])): pass
+class MacroDeclaration(_namedtuple('MacroDeclaration', ['nonterminal', 'parameters', 'definition', 'next'])):
+    def execute(self, context):
+        definition = self.definition.execute(context)
+        context.declare_macro((self.nonterminal, self.parameters), definition)
+        self.next.execute(context)
 
 
-class MacroUse(_namedtuple('MacroUse', ['nonterminal', 'parameters', 'nodes'])): pass
-    # def execute(self, context):
-    #     local_context = _Context(context)
-    #     self.body.execute(local_context)
-    #     self.next.execute(context)
+class MacroUse(_namedtuple('MacroUse', ['nonterminal', 'parameters', 'nodes'])):
+    def execute(self, context):
+        definition = context.get_macro_definition((self.nonterminal, self.parameters))
+        return definition(context, *self.nodes)
 
 
 class Block(_namedtuple('Block', ['body', 'next'])):
@@ -110,7 +114,7 @@ class Return(_namedtuple('Return', ['value'])):
 class VariableAssignment(_namedtuple('VariableAssignment', ['name', 'value', 'next'])):
     def execute(self, context):
         value = self.value.execute(context)
-        context.assign(self.name, value)
+        context.assign_variable(self.name, value)
         self.next.execute(context)
 
 
@@ -124,7 +128,7 @@ class AttributeAssignment(_namedtuple('AttributeAssignment', ['object', 'attribu
 
 class VariableAccess(_namedtuple('VariableAccess', ['name'])):
     def execute(node, context):
-        value = context.access(node.name)
+        value = context.access_variable(node.name)
         return value
 
 
@@ -150,7 +154,8 @@ class FunctionLiteral(_namedtuple('FunctionLiteral', ['arguments', 'body'])):
         def value(*arguments):
             local_context = _Context(context)
             for name, value in zip(self.arguments, arguments):
-                local_context.declare_and_assign(name, value)
+                local_context.declare_variable(name)
+                local_context.assign_variable(name, value)
             try:
                 self.body.execute(local_context)
             except Return.Exception as j:
@@ -172,33 +177,40 @@ class _Context:
     def __init__(self, parent=None):
         self.__parent = parent
         self.__variables = {}
+        self.__macro_definitions = {}
 
     @property
     def variables(self):
         return self.__variables
 
-    def declare(self, name):
+    def declare_variable(self, name):
         self.__variables.setdefault(name, _Context.UNASSIGNED_VARIABLE_PLACEHOLDER)
 
-    def assign(self, name, value):
+    def assign_variable(self, name, value):
         if name in self.__variables:
             self.__variables[name] = value
         elif self.__parent is not None:
-            self.__parent.assign(name, value)
+            self.__parent.assign_variable(name, value)
         else:
             raise Exception('Assignment to undeclared variable \'{}\''.format(name))
 
-    def declare_and_assign(self, name, value):
-        self.declare(name)
-        self.assign(name, value)
-
-    def access(self, name):
+    def access_variable(self, name):
         if name in self.__variables:
             value = self.__variables[name]
             if value is _Context.UNASSIGNED_VARIABLE_PLACEHOLDER:
                 raise Exception('Use of unassigned variable \'{}\''.format(name))
             return value
         elif self.__parent is not None:
-            return self.__parent.access(name)
+            return self.__parent.access_variable(name)
         else:
             raise Exception('Use of undeclared variable \'{}\''.format(name))
+
+    def declare_macro(self, rule, definition):
+        self.__macro_definitions[rule] = definition
+
+    def get_macro_definition(self, rule):
+        try:
+            return self.__macro_definitions[rule]
+        except KeyError:
+            assert self.__parent is not None
+            return self.__parent.get_macro_definition(rule)
