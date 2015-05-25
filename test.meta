@@ -1,11 +1,11 @@
 
-macro expression:
-    $expression,
-    whitespace, '+',
-    $expression,
--> (a, b) => {
-    print(a, b);
-};
+# macro expression:
+#     $expression,
+#     whitespace, '+',
+#     $expression,
+# -> (a, b) => {
+#     print(a, b);
+# };
+#
 
-
-print(2, 'foo');
+print(2.__add__(3), 'foo');

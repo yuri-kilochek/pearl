@@ -123,25 +123,28 @@ g = g.put('expression', [{'postfix_expression'}])
 
 g = g.put('postfix_expression', [{'primary_expression'}])
 
+
+# variable access
+g = g.put('primary_expression', [{'identifier'}], _ast.VariableAccess)
+
+
 # attribute access
 g = g.put('postfix_expression', [{'postfix_expression'},
                                  'whitespace', '.',
                                  {'identifier'}], _ast.AttributeAccess)
 
-# invocation
+# call
 g = g.put('postfix_expression', [{'postfix_expression'},
                                  'whitespace', '(',
-                                 {'invocation_arguments'},
-                                 'whitespace', ')'], _ast.Invocation)
+                                 {'call_arguments'},
+                                 'whitespace', ')'], _ast.Call)
 
-g = g.put('invocation_arguments', [], lambda: ())
-g = g.put('invocation_arguments', [{'expression'}], lambda argument: (argument,))
-g = g.put('invocation_arguments', [{'expression'},
-                                   'whitespace', ',',
-                                   {'invocation_arguments'}], lambda argument, rest: (argument,) + rest)
+g = g.put('call_arguments', [], lambda: ())
+g = g.put('call_arguments', [{'expression'}], lambda argument: (argument,))
+g = g.put('call_arguments', [{'expression'},
+                             'whitespace', ',',
+                             {'call_arguments'}], lambda argument, rest: (argument,) + rest)
 
-# variable use
-g = g.put('primary_expression', [{'identifier'}], _ast.VariableUse)
 
 # number literal
 g = g.put('primary_expression', [{'number'}], _ast.NumberLiteral)
