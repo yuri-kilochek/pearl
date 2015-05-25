@@ -13,7 +13,7 @@ def _read_characters(path):
 
 def load(module_path, *, grammar=_core_grammar):
     with open(module_path + '.meta') as file:
-        text = _pearl.Text(file.read())
+        text = file.read()
     try:
         return _pearl.parse(grammar, text, allow_ambiguous=False)
     except _pearl.AmbiguousParse as e:

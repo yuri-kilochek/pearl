@@ -4,7 +4,7 @@ macro statements:
     whitespace, '=',
     $expression,
     whitespace, ';',
-    $statements
+    $statements,
 -> (context, name, value, next) => {
     context.declare_variable(name);
     context.assign_variable(name, value.execute(context));
@@ -14,7 +14,7 @@ macro statements:
 macro expression:
     $expression,
     whitespace, '+',
-    $expression
+    $expression,
 -> (context, a, b) => {
     a = a.execute(context);
     b = b.execute(context);

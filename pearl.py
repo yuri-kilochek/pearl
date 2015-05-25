@@ -1,8 +1,5 @@
 from collections import namedtuple as _namedtuple
 from collections import defaultdict as _defaultdict
-from itertools import chain as _chain
-from itertools import repeat as _repeat
-from bisect import bisect as _bisect
 
 
 class Grammar:
@@ -88,40 +85,9 @@ class Grammar:
         return symbol not in self.__rule_sets
 
 
-class Text(str):
-    class Position(int):
-        def __new__(cls, position, text):
-            return int.__new__(cls, position)
-
-        def __init__(self, position, text):
-            self.__text = text
-            self.__line = None
-            self.__column = None
-
-        @property
-        def text(self):
-            return self.__text
-
-        @property
-        def line(self):
-            if self.__line is None:
-                self.__line = _bisect(self.__text._line_starts, self)
-            return self.__line
-
-        @property
-        def column(self):
-            if self.__column is None:
-                self.__column = self - self.__text._line_starts[self.__line - 1]
-            return self.__column
-
-    def __new__(cls, text):
-        return str.__new__(cls, text)
-
-    def __init__(self, text):
-        self._line_starts = [0]
-        for i, character in enumerate(self):
-            if character == '\n':
-                self._line_starts.append(i + 1)
+class _TextSegment(_namedtuple('_TextSegment', ['text', 'start', 'stop'])):
+    def __str__(self):
+        return self.text[self.start:self.stop]
 
 
 class _Item:
@@ -136,9 +102,19 @@ class _Item:
     ]
 
     def __init__(self, start, parent_items, grammar, rule, child_results):
-        for transform_grammar in rule.grammar_transforms[len(child_results)]:
-            selected_arguments = tuple(a for a, s in zip(child_results, rule.argument_selectors) if s)
-            grammar = transform_grammar(grammar, *selected_arguments)
+        grammar_transforms = rule.grammar_transforms[len(child_results)]
+        if grammar_transforms:
+            selected_arguments = []
+            new_child_results = []
+            for child_result, selected in zip(child_results, rule.argument_selectors):
+                if selected:
+                    if child_result.__class__ == _TextSegment:
+                        child_result = str(child_result)
+                    selected_arguments.append(child_result)
+                new_child_results.append(child_result)
+            child_results = tuple(new_child_results)
+            for transform_grammar in grammar_transforms:
+                grammar = transform_grammar(grammar, *selected_arguments)
 
         self.__start = start
         self.__parent_items = parent_items
@@ -180,14 +156,16 @@ class _Item:
 
     def get_result(self, text, stop):
         assert self.is_complete
-        selected_arguments = tuple(a for a, s in zip(self.__child_results, self.__rule.argument_selectors) if s)
+        selected_arguments = [a for a, s in zip(self.__child_results, self.__rule.argument_selectors) if s]
         if self.__rule.build_result:
+            for i, selected_argument in enumerate(selected_arguments):
+                if selected_argument.__class__ == _TextSegment:
+                    selected_arguments[i] = str(selected_argument)
             return self.__rule.build_result(*selected_arguments)
         if len(selected_arguments) == 0:
-            return text[self.__start:stop]
-        if len(selected_arguments) == 1:
-            return selected_arguments[0]
-        return selected_arguments
+            return _TextSegment(text, self.__start, stop)
+        assert len(selected_arguments) == 1
+        return selected_arguments[0]
 
     @property
     def progress(self):
@@ -248,30 +226,31 @@ _END = object()
 
 
 def parse(grammar, text, *, start='__start__', allow_partial=False, allow_ambiguous=True):
+    from itertools import chain
+    from itertools import repeat
+
     assert grammar.__class__ == Grammar
-    assert text.__class__ == Text
+    assert text.__class__ == str
 
     results = []
 
     state = _State()
 
-    position = Text.Position(0, text)
     for rule in grammar[start]:
-        state.put(_Item(position, None, grammar, rule, ()))
+        state.put(_Item(0, None, grammar, rule, ()))
 
-    for position, character in enumerate(_chain(text, _repeat(None))):
-        position = Text.Position(position, text)
+    for index, char in enumerate(chain(text, repeat(None))):
         while True:
             new_items = False
             for item in state:
                 if item.is_complete:
                     if item.parent_items is not None:
-                        item_result = item.get_result(text, position)
+                        item_result = item.get_result(text, index)
                         for parent_item in item.parent_items:
                             new_items |= state.put(parent_item.consume(item_result))
                 elif not item.grammar.is_terminal(item.expected_symbol):
                     for rule in item.grammar[item.expected_symbol]:
-                        new_items |= state.put(_Item(position, state[item.expected_symbol], item.grammar, rule, ()))
+                        new_items |= state.put(_Item(index, state[item.expected_symbol], item.grammar, rule, ()))
             if not new_items:
                 break
 
@@ -280,19 +259,19 @@ def parse(grammar, text, *, start='__start__', allow_partial=False, allow_ambigu
         for item in state:
             if item.is_complete:
                 if item.parent_items is None:
-                    if allow_partial or character is None:
-                        item_result = item.get_result(text, position)
+                    if allow_partial or char is None:
+                        item_result = item.get_result(text, index)
                         results.append(item_result)
-            elif item.grammar.is_terminal(item.expected_symbol) and character is not None:
-                if character == item.expected_symbol:
-                    next_state.put(item.consume(character))
+            elif item.grammar.is_terminal(item.expected_symbol) and char is not None:
+                if char == item.expected_symbol:
+                    next_state.put(item.consume(char))
 
         if len(results) > 1 and not allow_ambiguous:
             raise AmbiguousParse()
 
         if not next_state:
             if not results:
-                raise ParseError(_build_error_report(state, position, character))
+                raise ParseError(_build_error_report(text, state, index, char))
             break
 
         state = next_state
@@ -303,15 +282,24 @@ def parse(grammar, text, *, start='__start__', allow_partial=False, allow_ambigu
     return results
 
 
-def _build_error_report(state, position, character):
+def _build_error_report(text, state, index, char):
+    from bisect import bisect
+
+    line_starts = [0]
+    for i, c in enumerate(text):
+        if c == '\n':
+            line_starts.append(i + 1)
+
+    def get_position(i):
+        line = bisect(line_starts, i) - 1
+        column = i - line_starts[line]
+        return line + 1, column + 1
+
     reports = []
     for item in state:
         if not item.is_complete:
-            p = item.start
-            reports.append('{} in {} starting at {}'.format(repr(item.expected_symbol), repr(item.rule.head), (p.line, p.column)))
-    p = position
-    if character is None:
-        return 'Got unexpected end of input at {}. Expected:\n\t{}'.format((p.line, p.column), '\n\t'.join(reports))
+            reports.append('{} in {} starting at {}'.format(repr(item.expected_symbol), repr(item.rule.head), get_position(item.start)))
+    if char is None:
+        return 'Got unexpected end of input at {}. Expected:\n\t{}'.format(get_position(index), '\n\t'.join(reports))
     else:
-        return 'Got {} at {}. Expected:\n\t{}'.format(repr(character), (p.line, p.column), ' or \n\t'.join(reports))
-
+        return 'Got {} at {}. Expected:\n\t{}'.format(repr(char), get_position(index), ' or \n\t'.join(reports))
