@@ -1,19 +1,6 @@
 from collections import namedtuple as _namedtuple
 
 
-class Module(_namedtuple('Module', ['body'])):
-    def execute(self, variables):
-        context = _Context()
-
-        for name, value in variables.items():
-            context.declare_variable(name)
-            context.assign_variable(name, value)
-
-        self.body.execute(context)
-
-        return context.variables
-
-
 class Nothing(_namedtuple('Nothing', [])):
     def execute(self, context):
         pass
@@ -25,7 +12,23 @@ class UnusedExpression(_namedtuple('UnusedExpression', ['expression', 'next'])):
         self.next.execute(context)
 
 
-class VariableDeclaration(_namedtuple('VariableDeclaration', ['name', 'next'])):
+class Import(_namedtuple('UnusedExpression', ['exported', 'module_path', 'next'])):
+    def execute(self, context):
+        from ._Module import Module
+
+        module = Module(self.module_path)
+
+        for name, value in module.exported_variables.items():
+            context.declare_variable(name)
+            context.assign_variable(name, value)
+
+        for rule, definition in module.exported_macro_definitions.items():
+            context.define_macro(rule, definition)
+
+        self.next.execute(context)
+
+
+class VariableDeclaration(_namedtuple('VariableDeclaration', ['exported', 'name', 'next'])):
     def execute(self, context):
         context.declare_variable(self.name)
         self.next.execute(context)
@@ -37,10 +40,10 @@ class MacroParameterTerminal(_namedtuple('MacroParameterTerminal', ['symbols']))
 class MacroParameterNonterminal(_namedtuple('MacroParameterNonterminal', ['used', 'symbol'])): pass
 
 
-class MacroDeclaration(_namedtuple('MacroDeclaration', ['nonterminal', 'parameters', 'definition', 'next'])):
+class MacroDefinition(_namedtuple('MacroDeclaration', ['exported', 'nonterminal', 'parameters', 'definition', 'next'])):
     def execute(self, context):
         definition = self.definition.execute(context)
-        context.declare_macro((self.nonterminal, self.parameters), definition)
+        context.define_macro((self.nonterminal, self.parameters), definition)
         self.next.execute(context)
 
 
@@ -52,7 +55,7 @@ class MacroUse(_namedtuple('MacroUse', ['nonterminal', 'parameters', 'nodes'])):
 
 class Block(_namedtuple('Block', ['body', 'next'])):
     def execute(self, context):
-        local_context = _Context(context)
+        local_context = Context(context)
         self.body.execute(local_context)
         self.next.execute(context)
 
@@ -60,10 +63,10 @@ class Block(_namedtuple('Block', ['body', 'next'])):
 class IfElse(_namedtuple('IfElse', ['condition', 'true_clause', 'false_clause', 'next'])):
     def execute(self, context):
         if self.condition.execute(context):
-            local_context = _Context(context)
+            local_context = Context(context)
             self.true_clause.execute(local_context)
         else:
-            local_context = _Context(context)
+            local_context = Context(context)
             self.false_clause.execute(local_context)
         self.next.execute(context)
 
@@ -72,7 +75,7 @@ class Forever(_namedtuple('Forever', ['body', 'next'])):
     def execute(self, context):
         while True:
             try:
-                local_context = _Context(context)
+                local_context = Context(context)
                 self.body.execute(local_context)
             except Continue.Exception:
                 continue
@@ -152,7 +155,7 @@ class StringLiteral(_namedtuple('StringLiteral', ['value'])):
 class FunctionLiteral(_namedtuple('FunctionLiteral', ['arguments', 'body'])):
     def execute(self, context):
         def value(*arguments):
-            local_context = _Context(context)
+            local_context = Context(context)
             for name, value in zip(self.arguments, arguments):
                 local_context.declare_variable(name)
                 local_context.assign_variable(name, value)
@@ -171,33 +174,29 @@ class Call(_namedtuple('Call', ['callable', 'arguments'])):
         return value
 
 
-class _Context:
-    UNASSIGNED_VARIABLE_PLACEHOLDER = object()
+class Context:
+    UNASSIGNED_VARIABLE = object()
 
     def __init__(self, parent=None):
         self.__parent = parent
-        self.__variables = {}
-        self.__macro_definitions = {}
-
-    @property
-    def variables(self):
-        return self.__variables
+        self.variables = {}
+        self.macro_definitions = {}
 
     def declare_variable(self, name):
-        self.__variables.setdefault(name, _Context.UNASSIGNED_VARIABLE_PLACEHOLDER)
+        self.variables.setdefault(name, Context.UNASSIGNED_VARIABLE)
 
     def assign_variable(self, name, value):
-        if name in self.__variables:
-            self.__variables[name] = value
+        if name in self.variables:
+            self.variables[name] = value
         elif self.__parent is not None:
             self.__parent.assign_variable(name, value)
         else:
             raise Exception('Assignment to undeclared variable \'{}\''.format(name))
 
     def access_variable(self, name):
-        if name in self.__variables:
-            value = self.__variables[name]
-            if value is _Context.UNASSIGNED_VARIABLE_PLACEHOLDER:
+        if name in self.variables:
+            value = self.variables[name]
+            if value is Context.UNASSIGNED_VARIABLE:
                 raise Exception('Use of unassigned variable \'{}\''.format(name))
             return value
         elif self.__parent is not None:
@@ -205,12 +204,12 @@ class _Context:
         else:
             raise Exception('Use of undeclared variable \'{}\''.format(name))
 
-    def declare_macro(self, rule, definition):
-        self.__macro_definitions[rule] = definition
+    def define_macro(self, rule, definition):
+        self.macro_definitions[rule] = definition
 
     def get_macro_definition(self, rule):
         try:
-            return self.__macro_definitions[rule]
+            return self.macro_definitions[rule]
         except KeyError:
             assert self.__parent is not None
             return self.__parent.get_macro_definition(rule)

@@ -1,3 +1,4 @@
+from functools import lru_cache as _lru_cache
 import string as _string
 
 import pearl as _pearl
@@ -6,9 +7,7 @@ from . import ast as _ast
 
 g = _pearl.Grammar()
 
-g = g.put('__start__', [{'module'}])
-
-g = g.put('module', [{'statements'}], _ast.Module)
+g = g.put('__start__', [{'statements'}])
 
 # nothing
 g = g.put('statements', ['whitespace'], _ast.Nothing)
@@ -18,8 +17,46 @@ g = g.put('statements', [{'expression'},
                          'whitespace', ';',
                          {'statements'}], _ast.UnusedExpression)
 
+
+@_lru_cache(maxsize=256)
+def _get_grammar_patch(module_path):
+    from ._read import read
+
+    module_body = read(module_path)
+
+    rules = []
+
+    def glean_rules(s):
+        if s.__class__ == _ast.MacroDefinition and s.exported:
+            rules.append((s.nonterminal, s.parameters))
+        if s.__class__ != _ast.Nothing:
+            glean_rules(s.next)
+
+    glean_rules(module_body)
+
+    def patch_grammar(grammar):
+        for head, body in rules:
+            grammar = _add_macro_use_rule(grammar, head, body)
+        return grammar
+
+    return patch_grammar
+
+
+# import
+g = g.put('statements', [{'export'},
+                         'whitespace', 'i', 'm', 'p', 'o', 'r', 't',
+                         {'string'},
+                         'whitespace', ';', (lambda g, exported, module_path: _get_grammar_patch(module_path)(g)),
+                         {'statements'}], _ast.Import)
+
+
+# export
+g = g.put('export', [], lambda: False)
+g = g.put('export', ['whitespace', 'e', 'x', 'p', 'o', 'r', 't'], lambda: True)
+
 # variable declaration
-g = g.put('statements', ['whitespace', 'v', 'a', 'r',
+g = g.put('statements', [{'export'},
+                         'whitespace', 'v', 'a', 'r',
                          {'identifier'},
                          'whitespace', ';',
                          {'statements'}], _ast.VariableDeclaration)
@@ -40,15 +77,21 @@ def _build_macro_body_symbols(parameters):
             body_symbols.append(body_symbol)
     return body_symbols
 
-# macro declaration
-g = g.put('statements', ['whitespace', 'm', 'a', 'c', 'r', 'o',
+
+def _add_macro_use_rule(g, head, body):
+    return g.put(head, _build_macro_body_symbols(body), lambda *nodes: _ast.MacroUse(head, body, nodes))
+
+
+# macro definition
+g = g.put('statements', [{'export'},
+                         'whitespace', 'm', 'a', 'c', 'r', 'o',
                          {'identifier'},
                          'whitespace', ':',
                          {'macro_parameters'},
                          'whitespace', '-', '>',
                          {'expression'},
-                         'whitespace', ';', (lambda g, head, body, _: g.put(head, _build_macro_body_symbols(body), lambda *nodes: _ast.MacroUse(head, body, nodes))),
-                         {'statements'}], _ast.MacroDeclaration)
+                         'whitespace', ';', (lambda g, export, head, body, _: _add_macro_use_rule(g, head, body)),
+                         {'statements'}], _ast.MacroDefinition)
 
 g = g.put('macro_parameters', [], lambda: ())
 g = g.put('macro_parameters', [{'macro_parameter'}], lambda parameter: (parameter,))

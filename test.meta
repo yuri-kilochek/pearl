@@ -11,16 +11,7 @@ macro statements:
     next.execute(context);
 };
 
-macro expression:
-    $expression,
-    whitespace, '+',
-    $expression,
--> (context, a, b) => {
-    a = a.execute(context);
-    b = b.execute(context);
-    return a.__add__(b);
-};
+export import 'addition';
 
-var a = 2;
-
-print(a + 3);
+export var result;
+result = 2 + 3;

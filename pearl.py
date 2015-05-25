@@ -164,7 +164,7 @@ class _Item:
             return self.__rule.build_result(*selected_arguments)
         if len(selected_arguments) == 0:
             return _TextSegment(text, self.__start, stop)
-        assert len(selected_arguments) == 1
+        assert len(selected_arguments) == 1 or print(selected_arguments)
         return selected_arguments[0]
 
     @property
@@ -232,7 +232,7 @@ def parse(grammar, text, *, start='__start__', allow_partial=False, allow_ambigu
     assert grammar.__class__ == Grammar
     assert text.__class__ == str
 
-    results = []
+    results = set()
 
     state = _State()
 
@@ -261,7 +261,7 @@ def parse(grammar, text, *, start='__start__', allow_partial=False, allow_ambigu
                 if item.parent_items is None:
                     if allow_partial or char is None:
                         item_result = item.get_result(text, index)
-                        results.append(item_result)
+                        results.add(item_result)
             elif item.grammar.is_terminal(item.expected_symbol) and char is not None:
                 if char == item.expected_symbol:
                     next_state.put(item.consume(char))
@@ -277,7 +277,7 @@ def parse(grammar, text, *, start='__start__', allow_partial=False, allow_ambigu
         state = next_state
 
     if not allow_ambiguous:
-        return results[0]
+        return next(iter(results))
 
     return results
 

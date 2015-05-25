@@ -1,3 +1,5 @@
+from functools import lru_cache as _lru_cache
+
 import pearl as _pearl
 from ._core_grammar import core_grammar as _core_grammar
 
@@ -11,7 +13,8 @@ def _read_characters(path):
             yield c
 
 
-def load(module_path, *, grammar=_core_grammar):
+@_lru_cache(maxsize=256)
+def read(module_path, *, grammar=_core_grammar):
     with open(module_path + '.meta') as file:
         text = file.read()
     try:
