@@ -81,7 +81,7 @@ def _build_macro_body_symbols(parameters):
             body_symbol = parameter.symbol
             if len(body_symbol) == 1:
                 body_symbol += '-one-char-nonterminal'
-            if parameter.used:
+            if parameter.name is not None:
                 body_symbol = {body_symbol}
             body_symbols.append(body_symbol)
     return body_symbols
@@ -91,16 +91,24 @@ def _add_macro_use_rule(g, head, body):
     return g.put(head, _build_macro_body_symbols(body), lambda *nodes: _ast.MacroUse(head, body, nodes))
 
 
+def _build_macro_transform(parameters, transform_body):
+    arguments = ['__context__']
+    for parameter in parameters:
+        if parameter.__class__ == _ast.MacroParameterNonterminal and parameter.name is not None:
+            arguments.append(parameter.name)
+    return _ast.FunctionLiteral(tuple(arguments), transform_body)
+
+
 # macro definition
 g = g.put('statements', [{'export'},
                          'whitespace', 'm', 'a', 'c', 'r', 'o',
                          {'identifier'},
-                         'whitespace', ':',
-                         {'macro_parameters'},
                          'whitespace', '-', '>',
-                         {'expression'},
-                         'whitespace', ';', (lambda g, export, head, body, _: _add_macro_use_rule(g, head, body)),
-                         {'statements'}], _ast.MacroDefinition)
+                         {'macro_parameters'},
+                         'whitespace', '{',
+                         {'statements'},
+                         'whitespace', '}', (lambda g, exported, head, body, _: _add_macro_use_rule(g, head, body)),
+                         {'statements'}], lambda exported, head, body, transform_body, rest: _ast.MacroDefinition(exported, head, body, _build_macro_transform(body, transform_body), rest))
 
 g = g.put('macro_parameters', [], lambda: ())
 g = g.put('macro_parameters', [{'macro_parameter'}], lambda parameter: (parameter,))
@@ -109,9 +117,12 @@ g = g.put('macro_parameters', [{'macro_parameter'},
                                {'macro_parameters'}], lambda first, rest: (first,) + rest)
 
 g = g.put('macro_parameter', [{'string'}], lambda symbols: _ast.MacroParameterTerminal(tuple(symbols)))
-g = g.put('macro_parameter', [{'identifier'}], lambda symbol: _ast.MacroParameterNonterminal(False, symbol))
-g = g.put('macro_parameter', ['whitespace', '$',
-                              {'identifier'}], lambda symbol: _ast.MacroParameterNonterminal(True, symbol))
+g = g.put('macro_parameter', [{'identifier'},
+                              {'macro_parameter_nonterminal_name'}], _ast.MacroParameterNonterminal)
+
+g = g.put('macro_parameter_nonterminal_name', [], lambda: None)
+g = g.put('macro_parameter_nonterminal_name', ['whitespace', '/',
+                                               {'identifier'}])
 
 # block
 g = g.put('statements', ['whitespace', '{',

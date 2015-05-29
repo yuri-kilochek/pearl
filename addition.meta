@@ -1,11 +1,9 @@
-export macro expression:
-    $expression,
+export macro expression ->
+    expression/a,
     whitespace, '+',
-    $expression,
--> (context, a, b) => {
-    a = a.execute(context);
-    b = b.execute(context);
+    expression/b,
+{
+    a = a.execute(__context__);
+    b = b.execute(__context__);
     return a.__add__(b);
-};
-
-export var x = 42;
+}

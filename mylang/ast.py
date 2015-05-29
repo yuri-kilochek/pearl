@@ -37,7 +37,7 @@ class VariableDeclaration(_namedtuple('VariableDeclaration', ['exported', 'name'
 class MacroParameterTerminal(_namedtuple('MacroParameterTerminal', ['symbols'])): pass
 
 
-class MacroParameterNonterminal(_namedtuple('MacroParameterNonterminal', ['used', 'symbol'])): pass
+class MacroParameterNonterminal(_namedtuple('MacroParameterNonterminal', ['symbol', 'name'])): pass
 
 
 class MacroDefinition(_namedtuple('MacroDeclaration', ['exported', 'nonterminal', 'parameters', 'definition', 'next'])):
