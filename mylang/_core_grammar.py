@@ -61,6 +61,15 @@ g = g.put('statements', [{'export'},
                          'whitespace', ';',
                          {'statements'}], _ast.VariableDeclaration)
 
+# variable declaration with initialization
+g = g.put('statements', [{'export'},
+                         'whitespace', 'v', 'a', 'r',
+                         {'identifier'},
+                         'whitespace', '=',
+                         {'expression'},
+                         'whitespace', ';',
+                         {'statements'}], lambda exported, name, value, rest: _ast.VariableDeclaration(exported, name, _ast.VariableAssignment(name, value, rest)))
+
 
 def _build_macro_body_symbols(parameters):
     body_symbols = []

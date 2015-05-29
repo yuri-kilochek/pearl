@@ -8,5 +8,4 @@ export macro expression:
     return a.__add__(b);
 };
 
-export var x;
-x = 42;
+export var x = 42;
