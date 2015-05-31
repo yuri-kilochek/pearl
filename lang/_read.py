@@ -1,3 +1,4 @@
+import os.path as _os_path
 from functools import lru_cache as _lru_cache
 from hashlib import sha512 as _sha512
 import pickle as _pickle
@@ -13,7 +14,10 @@ def read(module_path):
 
 
 @_lru_cache(maxsize=256)
-def _read(module_path):
+def _read(module_path, origin='./'):
+    if _os_path.isabs(module_path):
+        module_path = _os_path.join('lang', 'libraries', _os_path.relpath(module_path, '/'))
+
     with open(module_path + '.lang', 'rb') as file:
         content = file.read()
     digest = _sha512(content).digest()
