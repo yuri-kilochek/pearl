@@ -1,0 +1,8 @@
+export macro if_else -> {}
+
+export macro if_else ->
+    whitespace, 'else',
+    if/false_clause,
+{
+    return false_clause.execute(__usage_context__);
+}

@@ -2,7 +2,7 @@ export macro prefix_expression ->
     whitespace, '/',
     prefix_expression/e,
 {
-    e = e.execute(__context__);
+    e = e.execute(__usage_context__);
     return 1.0.__truediv__(e);
 }
 
@@ -10,14 +10,14 @@ export macro prefix_expression ->
     whitespace, '-',
     prefix_expression/e,
 {
-    e = e.execute(__context__);
+    e = e.execute(__usage_context__);
     return e.__neg__();
 }
 
 export macro prefix_expression ->
     postfix_expression/e,
 {
-    return e.execute(__context__);
+    return e.execute(__usage_context__);
 }
 
 
@@ -27,15 +27,15 @@ export macro exponentiation_expression ->
     whitespace, '^',
     exponentiation_expression/p,
 {
-    p = p.execute(__context__);
-    b = b.execute(__context__);
+    p = p.execute(__usage_context__);
+    b = b.execute(__usage_context__);
     return b.__pow__(p);
 }
 
 export macro exponentiation_expression ->
     prefix_expression/e,
 {
-    return e.execute(__context__);
+    return e.execute(__usage_context__);
 }
 
 
@@ -45,8 +45,8 @@ export macro multiplicative_expression ->
     whitespace, '*',
     exponentiation_expression/b,
 {
-    a = a.execute(__context__);
-    b = b.execute(__context__);
+    a = a.execute(__usage_context__);
+    b = b.execute(__usage_context__);
     return a.__mul__(b);
 }
 
@@ -55,8 +55,8 @@ export macro multiplicative_expression ->
     whitespace, '/',
     exponentiation_expression/b,
 {
-    a = a.execute(__context__);
-    b = b.execute(__context__);
+    a = a.execute(__usage_context__);
+    b = b.execute(__usage_context__);
     return a.__truediv__(b);
 }
 
@@ -65,15 +65,15 @@ export macro multiplicative_expression ->
     whitespace, '%',
     exponentiation_expression/b,
 {
-    a = a.execute(__context__);
-    b = b.execute(__context__);
+    a = a.execute(__usage_context__);
+    b = b.execute(__usage_context__);
     return a.__mod__(b);
 }
 
 export macro multiplicative_expression ->
     exponentiation_expression/e,
 {
-    return e.execute(__context__);
+    return e.execute(__usage_context__);
 }
 
 
@@ -83,8 +83,8 @@ export macro additive_expression ->
     whitespace, '+',
     multiplicative_expression/b,
 {
-    a = a.execute(__context__);
-    b = b.execute(__context__);
+    a = a.execute(__usage_context__);
+    b = b.execute(__usage_context__);
     return a.__add__(b);
 }
 
@@ -93,15 +93,15 @@ export macro additive_expression ->
     whitespace, '-',
     multiplicative_expression/b,
 {
-    a = a.execute(__context__);
-    b = b.execute(__context__);
+    a = a.execute(__usage_context__);
+    b = b.execute(__usage_context__);
     return a.__sub__(b);
 }
 
 export macro additive_expression ->
     multiplicative_expression/e,
 {
-    return e.execute(__context__);
+    return e.execute(__usage_context__);
 }
 
 
@@ -109,7 +109,7 @@ export macro additive_expression ->
 export macro expression ->
     additive_expression/e,
 {
-    return e.execute(__context__);
+    return e.execute(__usage_context__);
 }
 
 export unmacro expression -> postfix_expression;

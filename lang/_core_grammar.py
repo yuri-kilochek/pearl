@@ -7,15 +7,25 @@ from . import ast as _ast
 
 g = _pearl.Grammar()
 
-g = g.put('__start__', [{'statements'}])
+g = g.put('__start__', [{'statement_sequence'}, 'whitespace'])
 
-# nothing
-g = g.put('statements', ['whitespace'], _ast.Nothing)
+
+# statement sequence
+g = g.put('statement_sequence', [{'statements'}], _ast.StatementSequence)
+
+g = g.put('statements', [], lambda: ())
+g = g.put('statements', [{'statement'},
+                         {'statements'}], lambda first, rest: (first,) + rest)
+
 
 # unused expression
-g = g.put('statements', [{'expression'},
-                         'whitespace', ';',
-                         {'statements'}], _ast.UnusedExpression)
+g = g.put('statement', [{'expression'},
+                        'whitespace', ';'])
+
+
+# export
+g = g.put('export', [], lambda: False)
+g = g.put('export', ['whitespace', 'e', 'x', 'p', 'o', 'r', 't'], lambda: True)
 
 
 @_lru_cache(maxsize=256)
@@ -26,14 +36,11 @@ def _get_grammar_patch(module_path):
 
     patches = []
 
-    def glean_rules(s):
+    for s in module_body.statements:
         if s.__class__ == _ast.MacroDefinition and s.exported:
-            patches.append(lambda g: _add_macro_use_rule(g, s.nonterminal, s.parameters))
+            patches.append((lambda s: lambda g: _add_macro_use_rule(g, s.nonterminal, s.parameters))(s))
         if s.__class__ == _ast.MacroUndefinition and s.exported:
-            patches.append(lambda g: _drop_unmacro_rule(g, s.nonterminal, s.parameters))
-        if s.__class__ != _ast.Nothing:
-            glean_rules(s.next)
-    glean_rules(module_body)
+            patches.append((lambda s: lambda g: _drop_unmacro_rule(g, s.nonterminal, s.parameters))(s))
 
     def patch_grammar(g):
         for patch in patches:
@@ -48,28 +55,14 @@ g = g.put('statements', [{'export'},
                          'whitespace', 'i', 'm', 'p', 'o', 'r', 't',
                          {'string'},
                          'whitespace', ';', (lambda g, exported, module_path: _get_grammar_patch(module_path)(g)),
-                         {'statements'}], _ast.Import)
+                         {'statements'}], lambda exported, module_path, rest: (_ast.Import(exported, module_path),) + rest)
 
-
-# export
-g = g.put('export', [], lambda: False)
-g = g.put('export', ['whitespace', 'e', 'x', 'p', 'o', 'r', 't'], lambda: True)
 
 # variable declaration
-g = g.put('statements', [{'export'},
-                         'whitespace', 'v', 'a', 'r',
-                         {'identifier'},
-                         'whitespace', ';',
-                         {'statements'}], _ast.VariableDeclaration)
-
-# variable declaration with initialization
-g = g.put('statements', [{'export'},
-                         'whitespace', 'v', 'a', 'r',
-                         {'identifier'},
-                         'whitespace', '=',
-                         {'expression'},
-                         'whitespace', ';',
-                         {'statements'}], lambda exported, name, value, rest: _ast.VariableDeclaration(exported, name, _ast.VariableAssignment(name, value, rest)))
+g = g.put('statement', [{'export'},
+                        'whitespace', 'v', 'a', 'r',
+                        {'identifier'},
+                        'whitespace', ';'], _ast.VariableDeclaration)
 
 
 def _build_macro_body_symbols(parameters):
@@ -93,7 +86,7 @@ def _add_macro_use_rule(g, head, body):
 
 
 def _build_macro_transform(parameters, transform_body):
-    arguments = ['__context__']
+    arguments = ['__usage_context__']
     for parameter in parameters:
         if parameter.__class__ == _ast.MacroParameterNonterminal and parameter.name is not None:
             arguments.append(parameter.name)
@@ -107,9 +100,9 @@ g = g.put('statements', [{'export'},
                          'whitespace', '-', '>',
                          {'macro_parameters'},
                          'whitespace', '{',
-                         {'statements'},
+                         {'statement_sequence'},
                          'whitespace', '}', (lambda g, exported, head, body, _: _add_macro_use_rule(g, head, body)),
-                         {'statements'}], lambda exported, head, body, transform_body, next: _ast.MacroDefinition(exported, head, body, _build_macro_transform(body, transform_body), next))
+                         {'statements'}], lambda exported, head, body, transform_body, rest: (_ast.MacroDefinition(exported, head, body, _build_macro_transform(body, transform_body)),) + rest)
 
 g = g.put('macro_parameters', [], lambda: ())
 g = g.put('macro_parameters', [{'macro_parameter'}], lambda parameter: (parameter,))
@@ -136,7 +129,7 @@ g = g.put('statements', [{'export'},
                          'whitespace', '-', '>',
                          {'unmacro_parameters'},
                          'whitespace', ';', (lambda g, exported, head, body: _drop_unmacro_rule(g, head, body)),
-                         {'statements'}], _ast.MacroUndefinition)
+                         {'statements'}], lambda exported, head, body, rest: (_ast.MacroUndefinition(exported, head, body),) + rest)
 
 g = g.put('unmacro_parameters', [], lambda: ())
 g = g.put('unmacro_parameters', [{'unmacro_parameter'}], lambda parameter: (parameter,))
@@ -147,81 +140,77 @@ g = g.put('unmacro_parameters', [{'unmacro_parameter'},
 g = g.put('unmacro_parameter', [{'string'}], lambda symbols: _ast.MacroParameterTerminal(tuple(symbols)))
 g = g.put('unmacro_parameter', [{'identifier'}], lambda symbol: _ast.MacroParameterNonterminal(symbol, None))
 
-# block
-g = g.put('statements', ['whitespace', '{',
-                         {'statements'},
-                         'whitespace', '}',
-                         {'statements'}], _ast.Block)
 
-# if else
-g = g.put('statements', ['whitespace', 'i', 'f',
-                         {'expression'},
-                         'whitespace', '{',
-                         {'statements'},
-                         'whitespace', '}',
-                         'whitespace', 'e', 'l', 's', 'e',
-                         'whitespace', '{',
-                         {'statements'},
-                         'whitespace', '}',
-                         {'statements'}], _ast.IfElse)
+# block
+g = g.put('statement', [{'block'}])
+g = g.put('block', ['whitespace', '{',
+                    {'statement_sequence'},
+                    'whitespace', '}'], _ast.Block)
+
+# if
+g = g.put('statement', [{'if'}])
+
+g = g.put('if', ['whitespace', 'i', 'f',
+                 {'expression'},
+                 {'block'},
+                 {'if_else'}], _ast.If)
+
+g = g.put('if_else', ['whitespace', 'e', 'l', 's', 'e',
+                      {'block'}])
 
 # forever
-g = g.put('statements', ['whitespace', 'f', 'o', 'r', 'e', 'v', 'e', 'r',
-                         'whitespace', '{',
-                         {'statements'},
-                         'whitespace', '}',
-                         {'statements'}], _ast.Forever)
+g = g.put('statement', [{'forever'}])
+g = g.put('forever', ['whitespace', 'f', 'o', 'r', 'e', 'v', 'e', 'r',
+                      {'block'}], _ast.Forever)
 
 # continue
-g = g.put('statements', ['whitespace', 'c', 'o', 'n', 't', 'i', 'n', 'u', 'e',
-                         'whitespace', ';'], _ast.Continue)
+g = g.put('statement', [{'continue'}])
+g = g.put('continue', ['whitespace', 'c', 'o', 'n', 't', 'i', 'n', 'u', 'e',
+                       'whitespace', ';'], _ast.Continue)
 
 # break
-g = g.put('statements', ['whitespace', 'b', 'r', 'e', 'a', 'k',
-                         'whitespace', ';'], _ast.Break)
+g = g.put('statement', [{'break'}])
+g = g.put('break', ['whitespace', 'b', 'r', 'e', 'a', 'k',
+                    'whitespace', ';'], _ast.Break)
 
 # return
-g = g.put('statements', ['whitespace', 'r', 'e', 't', 'u', 'r', 'n',
-                         {'expression'},
-                         'whitespace', ';'], _ast.Return)
+g = g.put('statement', [{'return'}])
+g = g.put('return', ['whitespace', 'r', 'e', 't', 'u', 'r', 'n',
+                     {'expression'},
+                     'whitespace', ';'], _ast.Return)
 
 # variable assignment
-g = g.put('statements', [{'identifier'},
-                         'whitespace', '=',
-                         {'expression'},
-                         'whitespace', ';',
-                         {'statements'}], _ast.VariableAssignment)
+g = g.put('statement', [{'variable_assignment'}])
+g = g.put('variable_assignment', [{'identifier'},
+                                   'whitespace', '=',
+                                   {'expression'},
+                                   'whitespace', ';'], _ast.VariableAssignment)
 
 # attribute assignment
-g = g.put('statements', [{'postfix_expression'},
-                         'whitespace', '.',
-                         {'identifier'},
-                         'whitespace', '=',
-                         {'expression'},
-                         'whitespace', ';',
-                         {'statements'}], _ast.AttributeAssignment)
+g = g.put('statement', [{'attribute_assignment'}])
+g = g.put('attribute_assignment', [{'postfix_expression'},
+                                   'whitespace', '.',
+                                   {'identifier'},
+                                   'whitespace', '=',
+                                   {'expression'},
+                                   'whitespace', ';'], _ast.AttributeAssignment)
 
 
 g = g.put('expression', [{'postfix_expression'}])
 
 
-g = g.put('postfix_expression', [{'primary_expression'}])
-
-
-# variable access
-g = g.put('primary_expression', [{'identifier'}], _ast.VariableAccess)
-
-
 # attribute access
-g = g.put('postfix_expression', [{'postfix_expression'},
-                                 'whitespace', '.',
-                                 {'identifier'}], _ast.AttributeAccess)
+g = g.put('postfix_expression', [{'attribute_access'}])
+g = g.put('attribute_access', [{'postfix_expression'},
+                               'whitespace', '.',
+                               {'identifier'}], _ast.AttributeAccess)
 
 # call
-g = g.put('postfix_expression', [{'postfix_expression'},
-                                 'whitespace', '(',
-                                 {'call_arguments'},
-                                 'whitespace', ')'], _ast.Call)
+g = g.put('postfix_expression', [{'call'}])
+g = g.put('call', [{'postfix_expression'},
+                   'whitespace', '(',
+                   {'call_arguments'},
+                   'whitespace', ')'], _ast.Call)
 
 g = g.put('call_arguments', [], lambda: ())
 g = g.put('call_arguments', [{'expression'}], lambda argument: (argument,))
@@ -230,20 +219,30 @@ g = g.put('call_arguments', [{'expression'},
                              {'call_arguments'}], lambda argument, rest: (argument,) + rest)
 
 
+g = g.put('postfix_expression', [{'primary_expression'}])
+
+
+# variable access
+g = g.put('primary_expression', [{'variable_access'}])
+g = g.put('variable_access', [{'identifier'}], _ast.VariableAccess)
+
 # number literal
-g = g.put('primary_expression', [{'number'}], _ast.NumberLiteral)
+g = g.put('primary_expression', [{'number_literal'}])
+g = g.put('number_literal', [{'number'}], _ast.NumberLiteral)
 
 # string literal
-g = g.put('primary_expression', [{'string'}], _ast.StringLiteral)
+g = g.put('primary_expression', [{'string_literal'}])
+g = g.put('string_literal', [{'string'}], _ast.StringLiteral)
 
 # function literal
-g = g.put('primary_expression', ['whitespace', '(',
-                                 {'function_literal_parameters'},
-                                 'whitespace', ')',
-                                 'whitespace', '=', '>',
-                                 'whitespace', '{',
-                                 {'statements'},
-                                 'whitespace', '}'], _ast.FunctionLiteral)
+g = g.put('primary_expression', [{'function_literal'}])
+g = g.put('function_literal', ['whitespace', '(',
+                               {'function_literal_parameters'},
+                               'whitespace', ')',
+                               'whitespace', '=', '>',
+                               'whitespace', '{',
+                               {'statement_sequence'},
+                               'whitespace', '}'], _ast.FunctionLiteral)
 
 g = g.put('function_literal_parameters', [], lambda: ())
 g = g.put('function_literal_parameters', [{'identifier'}], lambda parameter: (parameter,))
@@ -252,9 +251,10 @@ g = g.put('function_literal_parameters', [{'identifier'},
                                           {'function_literal_parameters'}], lambda first, rest: (first,) + rest)
 
 # parenthesized expression
-g = g.put('primary_expression', ['whitespace', '(',
-                                 {'expression'},
-                                 'whitespace', ')'])
+g = g.put('primary_expression', [{'parenthesized_expression'}])
+g = g.put('parenthesized_expression', ['whitespace', '(',
+                                       {'expression'},
+                                       'whitespace', ')'])
 
 
 def parse_string(text):

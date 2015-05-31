@@ -1,0 +1,16 @@
+import '/std/ast';
+import '/std/io';
+
+var unpack_macro = (n) => {
+    print(node);
+};
+
+export macro expression ->
+    expression/expression,
+    whitespace, 'derivative',
+    whitespace, 'by',
+    identifier/variable,
+{
+    unpack_macro(expression);
+    return 0;
+}

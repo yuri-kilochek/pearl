@@ -7,5 +7,5 @@ export macro expression ->
     whitespace, '=', '>',
     expression/body,
 {
-    return FunctionLiteral(parameters, Return(body)).execute(__context__);
+    return FunctionLiteral(parameters, Return(body)).execute(__usage_context__);
 }

@@ -14,7 +14,7 @@ def read(module_path):
 
 
 @_lru_cache(maxsize=256)
-def _read(module_path, origin='./'):
+def _read(module_path):
     if _os_path.isabs(module_path):
         module_path = _os_path.join('lang', 'libraries', _os_path.relpath(module_path, '/'))
 
@@ -44,11 +44,8 @@ def _read(module_path, origin='./'):
 def _get_imports(ast):
     imports = set()
 
-    def glean_imports(s):
+    for s in ast.statements:
         if s.__class__ == _ast.Import:
             imports.add(s.module_path)
-        if s.__class__ != _ast.Nothing:
-            glean_imports(s.next)
-    glean_imports(ast)
 
     return imports

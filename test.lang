@@ -1,9 +1,20 @@
-import '/std/operators';
 import '/std/io';
-import '/std/lambda';
+import '/std/operators';
+#import '/std/lambda';
+import '/std/types';
+import '/std/if';
 
-var x = 3;
-var f = (a, b) => a + b + 3;
+if False {
+    print('foo');
+} else if True {
+    print('bar');
+} else {
+    print('quux');
+}
 
-print(f(2, 3));
+
+
+#var f = (a, b) => a + b;
+#var t = f.context.get_macro_definition(f.body.value.__getitem__(slice(None, int(2), None)));
+#print(t.context);
 
