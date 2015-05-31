@@ -1,5 +1,9 @@
 import '/std/operators';
 import '/std/io';
+import '/std/lambda';
 
-print(42 + 2);
+var x = 3;
+var f = (a, b) => a + b + 3;
+
+print(f(2, 3));
 

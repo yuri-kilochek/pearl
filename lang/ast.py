@@ -161,6 +161,8 @@ class FunctionLiteral(_namedtuple('FunctionLiteral', ['arguments', 'body'])):
     def execute(self, context):
         def value(*arguments):
             local_context = Context(context)
+            if len(self.arguments) != len(arguments):
+                raise TypeError('Expected {} arguments, got {}'.format(len(self.arguments), len(arguments)))
             for name, value in zip(self.arguments, arguments):
                 local_context.declare_variable(name)
                 local_context.assign_variable(name, value)

@@ -59,4 +59,5 @@ _builtin_modules = {
         'print': print,
         'input': input,
     },
+    '/std/ast': {n: v for n, v in _ast.__dict__.items() if not n.startswith('_')},
 }

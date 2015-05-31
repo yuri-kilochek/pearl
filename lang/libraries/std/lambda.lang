@@ -1,0 +1,11 @@
+import '/std/ast';
+
+export macro expression ->
+    whitespace, '(',
+    function_literal_parameters/parameters,
+    whitespace, ')',
+    whitespace, '=', '>',
+    expression/body,
+{
+    return FunctionLiteral(parameters, Return(body)).execute(__context__);
+}
