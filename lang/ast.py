@@ -40,7 +40,7 @@ class MacroParameterTerminal(_namedtuple('MacroParameterTerminal', ['symbols']))
 class MacroParameterNonterminal(_namedtuple('MacroParameterNonterminal', ['symbol', 'name'])): pass
 
 
-class MacroDefinition(_namedtuple('MacroDeclaration', ['exported', 'nonterminal', 'parameters', 'definition', 'next'])):
+class MacroDefinition(_namedtuple('MacroDefinition', ['exported', 'nonterminal', 'parameters', 'definition', 'next'])):
     def execute(self, context):
         definition = self.definition.execute(context)
         context.define_macro((self.nonterminal, self.parameters), definition)
@@ -51,6 +51,11 @@ class MacroUse(_namedtuple('MacroUse', ['nonterminal', 'parameters', 'nodes'])):
     def execute(self, context):
         definition = context.get_macro_definition((self.nonterminal, self.parameters))
         return definition(context, *self.nodes)
+
+
+class MacroUndefinition(_namedtuple('MacroUndefinition', ['exported', 'nonterminal', 'parameters', 'next'])):
+    def execute(self, context):
+        self.next.execute(context)
 
 
 class Block(_namedtuple('Block', ['body', 'next'])):

@@ -24,20 +24,21 @@ def _get_grammar_patch(module_path):
 
     module_body = read(module_path)
 
-    rules = []
+    patches = []
 
     def glean_rules(s):
         if s.__class__ == _ast.MacroDefinition and s.exported:
-            rules.append((s.nonterminal, s.parameters))
+            patches.append(lambda g: _add_macro_use_rule(g, s.nonterminal, s.parameters))
+        if s.__class__ == _ast.MacroUndefinition and s.exported:
+            patches.append(lambda g: _drop_unmacro_rule(g, s.nonterminal, s.parameters))
         if s.__class__ != _ast.Nothing:
             glean_rules(s.next)
-
     glean_rules(module_body)
 
-    def patch_grammar(grammar):
-        for head, body in rules:
-            grammar = _add_macro_use_rule(grammar, head, body)
-        return grammar
+    def patch_grammar(g):
+        for patch in patches:
+            g = patch(g)
+        return g
 
     return patch_grammar
 
@@ -108,7 +109,7 @@ g = g.put('statements', [{'export'},
                          'whitespace', '{',
                          {'statements'},
                          'whitespace', '}', (lambda g, exported, head, body, _: _add_macro_use_rule(g, head, body)),
-                         {'statements'}], lambda exported, head, body, transform_body, rest: _ast.MacroDefinition(exported, head, body, _build_macro_transform(body, transform_body), rest))
+                         {'statements'}], lambda exported, head, body, transform_body, next: _ast.MacroDefinition(exported, head, body, _build_macro_transform(body, transform_body), next))
 
 g = g.put('macro_parameters', [], lambda: ())
 g = g.put('macro_parameters', [{'macro_parameter'}], lambda parameter: (parameter,))
@@ -123,6 +124,28 @@ g = g.put('macro_parameter', [{'identifier'},
 g = g.put('macro_parameter_nonterminal_name', [], lambda: None)
 g = g.put('macro_parameter_nonterminal_name', ['whitespace', '/',
                                                {'identifier'}])
+
+
+def _drop_unmacro_rule(g, head, body):
+    return g.drop(head, _build_macro_body_symbols(body))
+
+# unmacro
+g = g.put('statements', [{'export'},
+                         'whitespace', 'u', 'n', 'm', 'a', 'c', 'r', 'o',
+                         {'identifier'},
+                         'whitespace', '-', '>',
+                         {'unmacro_parameters'},
+                         'whitespace', ';', (lambda g, exported, head, body: _drop_unmacro_rule(g, head, body)),
+                         {'statements'}], _ast.MacroUndefinition)
+
+g = g.put('unmacro_parameters', [], lambda: ())
+g = g.put('unmacro_parameters', [{'unmacro_parameter'}], lambda parameter: (parameter,))
+g = g.put('unmacro_parameters', [{'unmacro_parameter'},
+                                  'whitespace', ',',
+                                 {'unmacro_parameters'}], lambda first, rest: (first,) + rest)
+
+g = g.put('unmacro_parameter', [{'string'}], lambda symbols: _ast.MacroParameterTerminal(tuple(symbols)))
+g = g.put('unmacro_parameter', [{'identifier'}], lambda symbol: _ast.MacroParameterNonterminal(symbol, None))
 
 # block
 g = g.put('statements', ['whitespace', '{',

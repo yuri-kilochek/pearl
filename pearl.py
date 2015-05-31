@@ -267,7 +267,7 @@ def parse(grammar, text, *, start='__start__', allow_partial=False, allow_ambigu
                     next_state.put(item.consume(char))
 
         if len(results) > 1 and not allow_ambiguous:
-            raise AmbiguousParse()
+            raise AmbiguousParse(results)
 
         if not next_state:
             if not results:

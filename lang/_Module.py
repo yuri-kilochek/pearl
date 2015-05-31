@@ -8,28 +8,34 @@ from . import ast as _ast
 class Module:
     def __init__(self, path):
         self.__path = path
-        self.__body = _read(path)
-        self.__exported_variables = {}
-        self.__exported_macro_definitions = {}
 
-        context = _ast.Context()
+        if path in _builtin_modules:
+            self.__body = None
+            self.__exported_variables = _builtin_modules[self.__path]
+            self.__exported_macro_definitions = {}
+        else:
+            self.__body = _read(path)
+            self.__exported_variables = {}
+            self.__exported_macro_definitions = {}
 
-        self.__body.execute(context)
+            context = _ast.Context()
 
-        def glean_exports(s):
-            if s.__class__ == _ast.Import and s.exported:
-                module = Module(s.module_path)
-                self.__exported_variables.update(module.__exported_variables)
-                self.__exported_macro_definitions.update(module.__exported_macro_definitions)
-            elif s.__class__ == _ast.VariableDeclaration and s.exported:
-                name = s.name
-                self.__exported_variables[name] = context.variables[name]
-            elif s.__class__ == _ast.MacroDefinition and s.exported:
-                rule = s.nonterminal, s.parameters
-                self.__exported_macro_definitions[rule] = context.macro_definitions[rule]
-            if s.__class__ not in (_ast.Nothing, _ast.MacroUse):
-                glean_exports(s.next)
-        glean_exports(self.__body)
+            self.__body.execute(context)
+
+            def glean_exports(s):
+                if s.__class__ == _ast.Import and s.exported:
+                    module = Module(s.module_path)
+                    self.__exported_variables.update(module.__exported_variables)
+                    self.__exported_macro_definitions.update(module.__exported_macro_definitions)
+                elif s.__class__ == _ast.VariableDeclaration and s.exported:
+                    name = s.name
+                    self.__exported_variables[name] = context.variables[name]
+                elif s.__class__ == _ast.MacroDefinition and s.exported:
+                    rule = s.nonterminal, s.parameters
+                    self.__exported_macro_definitions[rule] = context.macro_definitions[rule]
+                if s.__class__ not in (_ast.Nothing, _ast.MacroUse):
+                    glean_exports(s.next)
+            glean_exports(self.__body)
 
     @property
     def path(self):
@@ -46,3 +52,11 @@ class Module:
     @property
     def exported_macro_definitions(self):
         return self.__exported_macro_definitions
+
+
+_builtin_modules = {
+    '/std/io': {
+        'print': print,
+        'input': input,
+    },
+}

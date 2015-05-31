@@ -1,4 +1,11 @@
 import lang
+import pearl
 
-module = lang.Module('test')
-print(module.exported_variables)
+try:
+    module = lang.Module('test')
+except Exception as e:
+    for x in e.__cause__.args[0]:
+        print(x)
+
+
+
