@@ -1,3 +1,0 @@
-import 'addition';
-
-export var x = 2 + 3;

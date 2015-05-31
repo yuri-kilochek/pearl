@@ -1,0 +1,3 @@
+import 'std/operators';
+
+export var x = 2 + 3^-/2;

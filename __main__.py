@@ -1,4 +1,4 @@
-import mylang
+import lang
 
-module = mylang.Module('test')
+module = lang.Module('test')
 print(module.exported_variables)

@@ -1,9 +1,0 @@
-export macro expression ->
-    expression/a,
-    whitespace, '+',
-    expression/b,
-{
-    a = a.execute(__context__);
-    b = b.execute(__context__);
-    return a.__add__(b);
-}
