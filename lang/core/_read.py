@@ -16,7 +16,7 @@ def read(module_path):
 @_lru_cache(maxsize=256)
 def _read(module_path):
     if _os_path.isabs(module_path):
-        module_path = _os_path.join('lang', 'libraries', _os_path.relpath(module_path, '/'))
+        module_path = _os_path.join(_os_path.dirname(_os_path.realpath(__file__)), 'libraries', _os_path.relpath(module_path, '/'))
 
     with open(module_path + '.lang', 'rb') as file:
         content = file.read()

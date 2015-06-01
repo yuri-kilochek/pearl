@@ -4,15 +4,9 @@ import '/std/operators';
 import '/std/types';
 import '/std/if';
 
-if False {
+if True {
     print('foo');
-} else if True {
-    print('bar');
-} else {
-    print('quux');
 }
-
-
 
 #var f = (a, b) => a + b;
 #var t = f.context.get_macro_definition(f.body.value.__getitem__(slice(None, int(2), None)));
